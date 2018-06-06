@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2006 Atheros Communications, Inc.
  *
@@ -14,7 +16,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5211_beacon.c,v 1.2 2009/01/06 06:03:57 mrg Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
@@ -28,6 +30,17 @@
 /*
  * Routines used to initialize and generated beacons for the AR5211/AR5311.
  */
+
+/*
+ * Return the hardware NextTBTT in TSF
+ */
+uint64_t
+ar5211GetNextTBTT(struct ath_hal *ah)
+{
+#define TU_TO_TSF(_tu)	(((uint64_t)(_tu)) << 10)
+	return TU_TO_TSF(OS_REG_READ(ah, AR_TIMER0));
+#undef TU_TO_TSF
+}
 
 /*
  * Initialize all of the hardware registers used to send beacons.
@@ -55,8 +68,6 @@ ar5211BeaconInit(struct ath_hal *ah,
 {
 	HAL_BEACON_TIMERS bt;
 
-	bt.bt_nextdba = 0;
-	bt.bt_nextswba = 0;
 	bt.bt_nexttbtt = next_beacon;
 	/* 
 	 * TIMER1: in AP/adhoc mode this controls the DMA beacon
@@ -73,9 +84,9 @@ ar5211BeaconInit(struct ath_hal *ah,
 	case HAL_M_IBSS:
 	case HAL_M_HOSTAP:
 		bt.bt_nextdba = (next_beacon -
-			ath_hal_dma_beacon_response_time) << 3;	/* 1/8 TU */
+			ah->ah_config.ah_dma_beacon_response_time) << 3;	/* 1/8 TU */
 		bt.bt_nextswba = (next_beacon -
-			ath_hal_sw_beacon_response_time) << 3;	/* 1/8 TU */
+            ah->ah_config.ah_sw_beacon_response_time) << 3;	/* 1/8 TU */
 		break;
 	}
 	/*

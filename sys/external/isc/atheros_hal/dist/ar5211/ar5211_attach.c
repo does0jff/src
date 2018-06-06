@@ -1,5 +1,7 @@
-/*
- * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
+/*-
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2002-2009 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2006 Atheros Communications, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -14,7 +16,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5211_attach.c,v 1.3 2011/03/07 11:25:42 cegger Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
@@ -31,15 +33,14 @@
 static HAL_BOOL ar5211GetChannelEdges(struct ath_hal *ah,
 		uint16_t flags, uint16_t *low, uint16_t *high);
 static HAL_BOOL ar5211GetChipPowerLimits(struct ath_hal *ah,
-		HAL_CHANNEL *chans, uint32_t nchans);
+		struct ieee80211_channel *chan);
 
-static void ar5211ConfigPCIE(struct ath_hal *ah, HAL_BOOL restore);
+static void ar5211ConfigPCIE(struct ath_hal *ah, HAL_BOOL restore,
+		HAL_BOOL power_off);
 static void ar5211DisablePCIE(struct ath_hal *ah);
 
 static const struct ath_hal_private ar5211hal = {{
 	.ah_magic			= AR5211_MAGIC,
-	.ah_abi				= HAL_ABI_VERSION,
-	.ah_countryCode			= CTRY_DEFAULT,
 
 	.ah_getRateTable		= ar5211GetRateTable,
 	.ah_detach			= ar5211Detach,
@@ -75,6 +76,10 @@ static const struct ath_hal_private ar5211hal = {{
 	.ah_procTxDesc			= ar5211ProcTxDesc,
 	.ah_getTxIntrQueue		= ar5211GetTxIntrQueue,
 	.ah_reqTxIntrDesc 		= ar5211IntrReqTxDesc,
+	.ah_getTxCompletionRates	= ar5211GetTxCompletionRates,
+	.ah_setTxDescLink		= ar5211SetTxDescLink,
+	.ah_getTxDescLink		= ar5211GetTxDescLink,
+	.ah_getTxDescLinkPtr		= ar5211GetTxDescLinkPtr,
 
 	/* RX Functions */
 	.ah_getRxDP			= ar5211GetRxDP,
@@ -90,7 +95,8 @@ static const struct ath_hal_private ar5211hal = {{
 	.ah_setRxFilter			= ar5211SetRxFilter,
 	.ah_setupRxDesc			= ar5211SetupRxDesc,
 	.ah_procRxDesc			= ar5211ProcRxDesc,
-	.ah_rxMonitor			= ar5211AniPoll,
+	.ah_rxMonitor			= ar5211RxMonitor,
+	.ah_aniPoll			= ar5211AniPoll,
 	.ah_procMibEvent		= ar5211MibEvent,
 
 	/* Misc Functions */
@@ -129,8 +135,16 @@ static const struct ath_hal_private ar5211hal = {{
 	.ah_getAckCTSRate		= ar5211GetAckCTSRate,
 	.ah_setCTSTimeout		= ar5211SetCTSTimeout,
 	.ah_getCTSTimeout		= ar5211GetCTSTimeout,
-	.ah_setDecompMask               = ar5211SetDecompMask,
-	.ah_setCoverageClass            = ar5211SetCoverageClass,
+	.ah_setDecompMask		= ar5211SetDecompMask,
+	.ah_setCoverageClass		= ar5211SetCoverageClass,
+	.ah_setQuiet			= ar5211SetQuiet,
+	.ah_get11nExtBusy		= ar5211Get11nExtBusy,
+	.ah_getMibCycleCounts		= ar5211GetMibCycleCounts,
+	.ah_setChainMasks		= ar5211SetChainMasks,
+	.ah_enableDfs			= ar5211EnableDfs,
+	.ah_getDfsThresh		= ar5211GetDfsThresh,
+	/* XXX procRadarEvent */
+	/* XXX isFastClockEnabled */
 
 	/* Key Cache Functions */
 	.ah_getKeyCacheSize		= ar5211GetKeyCacheSize,
@@ -148,6 +162,7 @@ static const struct ath_hal_private ar5211hal = {{
 	.ah_beaconInit			= ar5211BeaconInit,
 	.ah_setStationBeaconTimers	= ar5211SetStaBeaconTimers,
 	.ah_resetStationBeaconTimers	= ar5211ResetStaBeaconTimers,
+	.ah_getNextTBTT			= ar5211GetNextTBTT,
 
 	/* Interrupt Functions */
 	.ah_isInterruptPending		= ar5211IsInterruptPending,
@@ -161,11 +176,6 @@ static const struct ath_hal_private ar5211hal = {{
 #ifdef AH_SUPPORT_WRITE_EEPROM
 	.ah_eepromWrite			= ar5211EepromWrite,
 #endif
-	.ah_gpioCfgInput		= ar5211GpioCfgInput,
-	.ah_gpioCfgOutput		= ar5211GpioCfgOutput,
-	.ah_gpioGet			= ar5211GpioGet,
-	.ah_gpioSet			= ar5211GpioSet,
-	.ah_gpioSetIntr			= ar5211GpioSetIntr,
 	.ah_getChipPowerLimits		= ar5211GetChipPowerLimits,
 };
 
@@ -193,9 +203,10 @@ ar5211GetRadioRev(struct ath_hal *ah)
 /*
  * Attach for an AR5211 part.
  */
-struct ath_hal *
+static struct ath_hal *
 ar5211Attach(uint16_t devid, HAL_SOFTC sc,
-	HAL_BUS_TAG st, HAL_BUS_HANDLE sh, HAL_STATUS *status)
+	HAL_BUS_TAG st, HAL_BUS_HANDLE sh, uint16_t *eepromdata,
+	HAL_OPS_CONFIG *ah_config, HAL_STATUS *status)
 {
 #define	N(a)	(sizeof(a)/sizeof(a[0]))
 	struct ath_hal_5211 *ahp;
@@ -237,7 +248,7 @@ ar5211Attach(uint16_t devid, HAL_SOFTC sc,
 	ahp->ah_acktimeout = (u_int) -1;
 	ahp->ah_ctstimeout = (u_int) -1;
 
-	if (!ar5211ChipReset(ah, AH_FALSE)) {	/* reset chip */
+	if (!ar5211ChipReset(ah, AH_NULL)) {	/* reset chip */
 		HALDEBUG(ah, HAL_DEBUG_ANY, "%s: chip reset failed\n", __func__);
 		ecode = HAL_EIO;
 		goto bad;
@@ -425,12 +436,13 @@ static HAL_BOOL
 ar5211GetChannelEdges(struct ath_hal *ah,
 	uint16_t flags, uint16_t *low, uint16_t *high)
 {
-	if (flags & CHANNEL_5GHZ) {
+	if (flags & IEEE80211_CHAN_5GHZ) {
 		*low = 4920;
 		*high = 6100;
 		return AH_TRUE;
 	}
-	if (flags & CHANNEL_2GHZ && ath_hal_eepromGetFlag(ah, AR_EEP_BMODE)) {
+	if (flags & IEEE80211_CHAN_2GHZ &&
+	    ath_hal_eepromGetFlag(ah, AR_EEP_BMODE)) {
 		*low = 2312;
 		*high = 2732;
 		return AH_TRUE;
@@ -439,25 +451,19 @@ ar5211GetChannelEdges(struct ath_hal *ah,
 }
 
 static HAL_BOOL
-ar5211GetChipPowerLimits(struct ath_hal *ah, HAL_CHANNEL *chans, uint32_t nchans)
+ar5211GetChipPowerLimits(struct ath_hal *ah, struct ieee80211_channel *chan)
 {
-	HAL_CHANNEL *chan;
-	int i;
-
 	/* XXX fill in, this is just a placeholder */
-	for (i = 0; i < nchans; i++) {
-		chan = &chans[i];
-		HALDEBUG(ah, HAL_DEBUG_ATTACH,
-		    "%s: no min/max power for %u/0x%x\n",
-		    __func__, chan->channel, chan->channelFlags);
-		chan->maxTxPower = MAX_RATE_POWER;
-		chan->minTxPower = 0;
-	}
+	HALDEBUG(ah, HAL_DEBUG_ATTACH,
+	    "%s: no min/max power for %u/0x%x\n",
+	    __func__, chan->ic_freq, chan->ic_flags);
+	chan->ic_maxpower = MAX_RATE_POWER;
+	chan->ic_minpower = 0;
 	return AH_TRUE;
 }
 
 static void
-ar5211ConfigPCIE(struct ath_hal *ah, HAL_BOOL restore)
+ar5211ConfigPCIE(struct ath_hal *ah, HAL_BOOL restore, HAL_BOOL power_off)
 {
 }
 
@@ -494,6 +500,8 @@ ar5211FillCapabilityInfo(struct ath_hal *ah)
 	pCap->halSleepAfterBeaconBroken = AH_TRUE;
 	pCap->halPSPollBroken = AH_TRUE;
 	pCap->halVEOLSupport = AH_TRUE;
+	pCap->halNumMRRetries = 1;	/* No hardware MRR support */
+	pCap->halNumTxMaps = 1;		/* Single TX ptr per descr */
 
 	pCap->halTotalQueues = HAL_NUM_TX_QUEUES;
 	pCap->halKeyCacheSize = 128;
@@ -502,6 +510,12 @@ ar5211FillCapabilityInfo(struct ath_hal *ah)
 	pCap->halChanHalfRate = AH_FALSE;
 	pCap->halChanQuarterRate = AH_FALSE;
 
+	/*
+	 * RSSI uses the combined field; some 11n NICs may use
+	 * the control chain RSSI.
+	 */
+	pCap->halUseCombinedRadarRssi = AH_TRUE;
+
 	if (ath_hal_eepromGetFlag(ah, AR_EEP_RFKILL) &&
 	    ath_hal_eepromGet(ah, AR_EEP_RFSILENT, &ahpriv->ah_rfsilent) == HAL_OK) {
 		/* NB: enabled by default */
@@ -509,7 +523,8 @@ ar5211FillCapabilityInfo(struct ath_hal *ah)
 		pCap->halRfSilentSupport = AH_TRUE;
 	}
 
-	pCap->halTstampPrecision = 13;
+	pCap->halRxTstampPrecision = 13;
+	pCap->halTxTstampPrecision = 16;
 	pCap->halIntrMask = HAL_INT_COMMON
 			| HAL_INT_RX
 			| HAL_INT_TX
@@ -517,6 +532,9 @@ ar5211FillCapabilityInfo(struct ath_hal *ah)
 			| HAL_INT_BNR
 			| HAL_INT_TIM
 			;
+
+	pCap->hal4kbSplitTransSupport = AH_TRUE;
+	pCap->halHasRxSelfLinkedTail = AH_TRUE;
 
 	/* XXX might be ok w/ some chip revs */
 	ahpriv->ah_rxornIsFatal = AH_TRUE;

@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2008 Atheros Communications, Inc.
  *
@@ -14,7 +16,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5312_power.c,v 1.1.1.1 2008/12/11 04:46:45 alc Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
@@ -71,7 +73,6 @@ ar5312SetPowerModeNetworkSleep(struct ath_hal *ah, int setChip)
 HAL_BOOL
 ar5312SetPowerMode(struct ath_hal *ah, HAL_POWER_MODE mode, int setChip)
 {
-	struct ath_hal_5212 *ahp = AH5212(ah);
 #ifdef AH_DEBUG
 	static const char* modes[] = {
 		"AWAKE",
@@ -83,7 +84,7 @@ ar5312SetPowerMode(struct ath_hal *ah, HAL_POWER_MODE mode, int setChip)
 	int status = AH_TRUE;
 
 	HALDEBUG(ah, HAL_DEBUG_POWER, "%s: %s -> %s (%s)\n", __func__,
-		modes[ahp->ah_powerMode], modes[mode],
+		modes[ah->ah_powerMode], modes[mode],
 		setChip ? "set chip " : "");
 	switch (mode) {
 	case HAL_PM_AWAKE:
@@ -100,7 +101,7 @@ ar5312SetPowerMode(struct ath_hal *ah, HAL_POWER_MODE mode, int setChip)
 		    __func__, mode);
 		return AH_FALSE;
 	}
-	ahp->ah_powerMode = mode;
+	ah->ah_powerMode = mode;
 	return status; 
 }
 

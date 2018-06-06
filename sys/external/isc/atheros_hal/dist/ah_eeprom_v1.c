@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2008 Sam Leffler, Errno Consulting
  * Copyright (c) 2008 Atheros Communications, Inc.
  *
@@ -14,7 +16,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ah_eeprom_v1.c,v 1.4 2008/12/12 21:31:49 alc Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
@@ -68,7 +70,7 @@ v1EepromGet(struct ath_hal *ah, int param, void *val)
 	}
 }
 
-static HAL_BOOL
+static HAL_STATUS
 v1EepromSet(struct ath_hal *ah, int param, int v)
 {
 	return HAL_EINVAL;

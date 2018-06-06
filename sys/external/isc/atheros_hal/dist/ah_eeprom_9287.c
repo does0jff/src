@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: ISC
  *
  * Copyright (c) 2008 Sam Leffler, Errno Consulting
- * Copyright (c) 2008 Atheros Communications, Inc.
+ * Copyright (c) 2010 Atheros Communications, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -23,26 +23,24 @@
 #include "ah.h"
 #include "ah_internal.h"
 #include "ah_eeprom_v14.h"
+#include "ah_eeprom_9287.h"
 
 static HAL_STATUS
-v14EepromGet(struct ath_hal *ah, int param, void *val)
+v9287EepromGet(struct ath_hal *ah, int param, void *val)
 {
 #define	CHAN_A_IDX	0
 #define	CHAN_B_IDX	1
 #define	IS_VERS(op, v)	((pBase->version & AR5416_EEP_VER_MINOR_MASK) op (v))
-	HAL_EEPROM_v14 *ee = AH_PRIVATE(ah)->ah_eeprom;
-	const MODAL_EEP_HEADER *pModal = ee->ee_base.modalHeader;
-	const BASE_EEP_HEADER  *pBase  = &ee->ee_base.baseEepHeader;
+	HAL_EEPROM_9287 *ee = AH_PRIVATE(ah)->ah_eeprom;
+	const MODAL_EEP_9287_HEADER *pModal = &ee->ee_base.modalHeader;
+	const BASE_EEP_9287_HEADER *pBase = &ee->ee_base.baseEepHeader;
 	uint32_t sum;
 	uint8_t *macaddr;
 	int i;
 
 	switch (param) {
-        case AR_EEP_NFTHRESH_5:
-		*(int16_t *)val = pModal[0].noiseFloorThreshCh[0];
-		return HAL_OK;
         case AR_EEP_NFTHRESH_2:
-		*(int16_t *)val = pModal[1].noiseFloorThreshCh[0];
+		*(int16_t *)val = pModal->noiseFloorThreshCh[0];
 		return HAL_OK;
         case AR_EEP_MACADDR:		/* Get MAC Address */
 		sum = 0;
@@ -67,48 +65,15 @@ v14EepromGet(struct ath_hal *ah, int param, void *val)
 		return pBase->opCapFlags;
         case AR_EEP_RFSILENT:
 		return pBase->rfSilent;
-	case AR_EEP_OB_5:
-		return pModal[CHAN_A_IDX].ob;
-    	case AR_EEP_DB_5:
-		return pModal[CHAN_A_IDX].db;
-    	case AR_EEP_OB_2:
-		return pModal[CHAN_B_IDX].ob;
-    	case AR_EEP_DB_2:
-		return pModal[CHAN_B_IDX].db;
 	case AR_EEP_TXMASK:
 		return pBase->txMask;
 	case AR_EEP_RXMASK:
 		return pBase->rxMask;
-	case AR_EEP_RXGAIN_TYPE:
-		return IS_VERS(>=, AR5416_EEP_MINOR_VER_17) ?
-		    pBase->rxGainType : AR5416_EEP_RXGAIN_ORIG;
-	case AR_EEP_TXGAIN_TYPE:
-		return IS_VERS(>=, AR5416_EEP_MINOR_VER_19) ?
-		    pBase->txGainType : AR5416_EEP_TXGAIN_ORIG;
-	case AR_EEP_FSTCLK_5G:
-		/* 5ghz fastclock is always enabled for Merlin minor <= 16 */
-		if (IS_VERS(<=, AR5416_EEP_MINOR_VER_16))
-			return HAL_OK;
-		return pBase->fastClk5g ? HAL_OK : HAL_EIO;
 	case AR_EEP_OL_PWRCTRL:
 		HALASSERT(val == AH_NULL);
 		return pBase->openLoopPwrCntl ?  HAL_OK : HAL_EIO;
-	case AR_EEP_DAC_HPWR_5G:
-		if (IS_VERS(>=, AR5416_EEP_MINOR_VER_20)) {
-			*(uint8_t *) val = pBase->dacHiPwrMode_5G;
-			return HAL_OK;
-		} else
-			return HAL_EIO;
-	case AR_EEP_FRAC_N_5G:
-		if (IS_VERS(>=, AR5416_EEP_MINOR_VER_22)) {
-			*(uint8_t *) val = pBase->frac_n_5g;
-		} else
-			*(uint8_t *) val = 0;
-		return HAL_OK;
 	case AR_EEP_AMODE:
-		HALASSERT(val == AH_NULL);
-		return pBase->opCapFlags & AR5416_OPFLAGS_11A ?
-		    HAL_OK : HAL_EIO;
+		return HAL_EIO;		/* no 5GHz for Kiwi */
 	case AR_EEP_BMODE:
 	case AR_EEP_GMODE:
 		HALASSERT(val == AH_NULL);
@@ -133,22 +98,21 @@ v14EepromGet(struct ath_hal *ah, int param, void *val)
 	case AR_EEP_ANTGAINMAX_2:
 		*(int8_t *) val = ee->ee_antennaGainMax[1];
 		return HAL_OK;
-	case AR_EEP_ANTGAINMAX_5:
-		*(int8_t *) val = ee->ee_antennaGainMax[0];
-		return HAL_OK;
 	case AR_EEP_PWR_TABLE_OFFSET:
-		if (IS_VERS(>=, AR5416_EEP_MINOR_VER_21))
-			*(int8_t *) val = pBase->pwr_table_offset;
-		else
-			*(int8_t *) val = AR5416_PWR_TABLE_OFFSET_DB;
+		*(int8_t *) val = pBase->pwrTableOffset;
 		return HAL_OK;
-	case AR_EEP_PWDCLKIND:
-		if (IS_VERS(>=, AR5416_EEP_MINOR_VER_10)) {
-			*(uint8_t *) val = pBase->pwdclkind;
-			return HAL_OK;
-		}
-		return HAL_EIO;
-		
+	case AR_EEP_TEMPSENSE_SLOPE:
+		if (IS_VERS(>=,  AR9287_EEP_MINOR_VER_2))
+			*(int8_t *)val = pBase->tempSensSlope;
+		else
+			*(int8_t *)val = 0;
+		return HAL_OK;
+	case AR_EEP_TEMPSENSE_SLOPE_PAL_ON:
+		if (IS_VERS(>=,  AR9287_EEP_MINOR_VER_3))
+			*(int8_t *)val = pBase->tempSensSlopePalOn;
+		else
+			*(int8_t *)val = 0;
+		return HAL_OK;
         default:
 		HALASSERT(0);
 		return HAL_EINVAL;
@@ -159,31 +123,29 @@ v14EepromGet(struct ath_hal *ah, int param, void *val)
 }
 
 static HAL_STATUS
-v14EepromSet(struct ath_hal *ah, int param, int v)
+v9287EepromSet(struct ath_hal *ah, int param, int v)
 {
-	HAL_EEPROM_v14 *ee = AH_PRIVATE(ah)->ah_eeprom;
+	HAL_EEPROM_9287 *ee = AH_PRIVATE(ah)->ah_eeprom;
 
 	switch (param) {
-	case AR_EEP_ANTGAINMAX_2:
-		ee->ee_antennaGainMax[1] = (int8_t) v;
-		return HAL_OK;
-	case AR_EEP_ANTGAINMAX_5:
-		ee->ee_antennaGainMax[0] = (int8_t) v;
-		return HAL_OK;
+		case AR_EEP_ANTGAINMAX_2:
+			ee->ee_antennaGainMax[1] = (int8_t) v;
+			return HAL_OK;
+		default:
+			return HAL_EINVAL;
 	}
-	return HAL_EINVAL;
 }
 
 static HAL_BOOL
-v14EepromDiag(struct ath_hal *ah, int request,
+v9287EepromDiag(struct ath_hal *ah, int request,
      const void *args, uint32_t argsize, void **result, uint32_t *resultsize)
 {
-	HAL_EEPROM_v14 *ee = AH_PRIVATE(ah)->ah_eeprom;
+	HAL_EEPROM_9287 *ee = AH_PRIVATE(ah)->ah_eeprom;
 
 	switch (request) {
 	case HAL_DIAG_EEPROM:
 		*result = ee;
-		*resultsize = sizeof(HAL_EEPROM_v14);
+		*resultsize = sizeof(HAL_EEPROM_9287);
 		return AH_TRUE;
 	}
 	return AH_FALSE;
@@ -191,67 +153,67 @@ v14EepromDiag(struct ath_hal *ah, int request,
 
 /* Do structure specific swaps if Eeprom format is non native to host */
 static void
-eepromSwap(struct ar5416eeprom *ee)
+eepromSwap(HAL_EEPROM_9287 *ee)
 {
-	uint32_t integer, i, j;
+	uint32_t integer, i;
 	uint16_t word;
-	MODAL_EEP_HEADER *pModal;
+	MODAL_EEP_9287_HEADER *pModal;
 
 	/* convert Base Eep header */
-	word = __bswap16(ee->baseEepHeader.length);
-	ee->baseEepHeader.length = word;
+	word = __bswap16(ee->ee_base.baseEepHeader.length);
+	ee->ee_base.baseEepHeader.length = word;
 
-	word = __bswap16(ee->baseEepHeader.checksum);
-	ee->baseEepHeader.checksum = word;
+	word = __bswap16(ee->ee_base.baseEepHeader.checksum);
+	ee->ee_base.baseEepHeader.checksum = word;
 
-	word = __bswap16(ee->baseEepHeader.version);
-	ee->baseEepHeader.version = word;
+	word = __bswap16(ee->ee_base.baseEepHeader.version);
+	ee->ee_base.baseEepHeader.version = word;
 
-	word = __bswap16(ee->baseEepHeader.regDmn[0]);
-	ee->baseEepHeader.regDmn[0] = word;
+	word = __bswap16(ee->ee_base.baseEepHeader.regDmn[0]);
+	ee->ee_base.baseEepHeader.regDmn[0] = word;
 
-	word = __bswap16(ee->baseEepHeader.regDmn[1]);
-	ee->baseEepHeader.regDmn[1] = word;
+	word = __bswap16(ee->ee_base.baseEepHeader.regDmn[1]);
+	ee->ee_base.baseEepHeader.regDmn[1] = word;
 
-	word = __bswap16(ee->baseEepHeader.rfSilent);
-	ee->baseEepHeader.rfSilent = word;
+	word = __bswap16(ee->ee_base.baseEepHeader.rfSilent);
+	ee->ee_base.baseEepHeader.rfSilent = word;
 
-	word = __bswap16(ee->baseEepHeader.blueToothOptions);
-	ee->baseEepHeader.blueToothOptions = word; 
+	word = __bswap16(ee->ee_base.baseEepHeader.blueToothOptions);
+	ee->ee_base.baseEepHeader.blueToothOptions = word; 
 
-	word = __bswap16(ee->baseEepHeader.deviceCap);
-	ee->baseEepHeader.deviceCap = word;
+	word = __bswap16(ee->ee_base.baseEepHeader.deviceCap);
+	ee->ee_base.baseEepHeader.deviceCap = word;
 
 	/* convert Modal Eep header */
-	for (j = 0; j < 2; j++) {
-		pModal = &ee->modalHeader[j];
 
-		/* XXX linux/ah_osdep.h only defines __bswap32 for BE */
-		integer = __bswap32(pModal->antCtrlCommon);
-		pModal->antCtrlCommon = integer;
+	/* only 2.4ghz here; so only one modal header entry */
+	pModal = &ee->ee_base.modalHeader;
 
-		for (i = 0; i < AR5416_MAX_CHAINS; i++) {
-			integer = __bswap32(pModal->antCtrlChain[i]);
-			pModal->antCtrlChain[i] = integer;
-		}
-		for (i = 0; i < 3; i++) {
-			word = __bswap16(pModal->xpaBiasLvlFreq[i]);
-			pModal->xpaBiasLvlFreq[i] = word;
-		}
-		for (i = 0; i < AR5416_EEPROM_MODAL_SPURS; i++) {
-			word = __bswap16(pModal->spurChans[i].spurChan);
-			pModal->spurChans[i].spurChan = word;
-		}
+	/* XXX linux/ah_osdep.h only defines __bswap32 for BE */
+	integer = __bswap32(pModal->antCtrlCommon);
+	pModal->antCtrlCommon = integer;
+
+	for (i = 0; i < AR9287_MAX_CHAINS; i++) {
+		integer = __bswap32(pModal->antCtrlChain[i]);
+		pModal->antCtrlChain[i] = integer;
+	}
+	for (i = 0; i < AR5416_EEPROM_MODAL_SPURS; i++) {
+		word = __bswap16(pModal->spurChans[i].spurChan);
+		pModal->spurChans[i].spurChan = word;
 	}
 }
 
 static uint16_t 
-v14EepromGetSpurChan(struct ath_hal *ah, int ix, HAL_BOOL is2GHz)
+v9287EepromGetSpurChan(struct ath_hal *ah, int ix, HAL_BOOL is2GHz)
 { 
-	HAL_EEPROM_v14 *ee = AH_PRIVATE(ah)->ah_eeprom;
+	HAL_EEPROM_9287 *ee = AH_PRIVATE(ah)->ah_eeprom;
+	
+	HALASSERT(is2GHz == AH_TRUE);
+	if (is2GHz != AH_TRUE)
+		return 0;	/* XXX ? */
 	
 	HALASSERT(0 <= ix && ix <  AR5416_EEPROM_MODAL_SPURS);
-	return ee->ee_base.modalHeader[is2GHz].spurChans[ix].spurChan;
+	return ee->ee_base.modalHeader.spurChans[ix].spurChan;
 }
 
 /**************************************************************************
@@ -266,11 +228,12 @@ fbin2freq(uint8_t fbin, HAL_BOOL is2GHz)
 	/*
 	 * Reserved value 0xFF provides an empty definition both as
 	 * an fbin and as a frequency - do not convert
-	 */
+	*/
 	if (fbin == AR5416_BCHAN_UNUSED)
 		return fbin;
 	return (uint16_t)((is2GHz) ? (2300 + fbin) : (4800 + 5 * fbin));
 }
+
 
 /*
  * Copy EEPROM Conformance Testing Limits contents 
@@ -280,14 +243,14 @@ fbin2freq(uint8_t fbin, HAL_BOOL is2GHz)
 #define CTL_CHAIN	0 
 
 static void
-v14EepromReadCTLInfo(struct ath_hal *ah, HAL_EEPROM_v14 *ee)
+v9287EepromReadCTLInfo(struct ath_hal *ah, HAL_EEPROM_9287 *ee)
 {
 	RD_EDGES_POWER *rep = ee->ee_rdEdgesPower;
 	int i, j;
 	
-	HALASSERT(AR5416_NUM_CTLS <= sizeof(ee->ee_rdEdgesPower)/NUM_EDGES);
+	HALASSERT(AR9287_NUM_CTLS <= sizeof(ee->ee_rdEdgesPower)/NUM_EDGES);
 
-	for (i = 0; ee->ee_base.ctlIndex[i] != 0 && i < AR5416_NUM_CTLS; i++) {
+	for (i = 0; ee->ee_base.ctlIndex[i] != 0 && i < AR9287_NUM_CTLS; i++) {
 		for (j = 0; j < NUM_EDGES; j ++) {
 			/* XXX Confirm this is the right thing to do when an invalid channel is stored */
 			if (ee->ee_base.ctlData[i].ctlEdges[CTL_CHAIN][j].bChannel == AR5416_BCHAN_UNUSED) {
@@ -313,9 +276,9 @@ v14EepromReadCTLInfo(struct ath_hal *ah, HAL_EEPROM_v14 *ee)
  * Reclaim any EEPROM-related storage.
  */
 static void
-v14EepromDetach(struct ath_hal *ah)
+v9287EepromDetach(struct ath_hal *ah)
 {
-	HAL_EEPROM_v14 *ee = AH_PRIVATE(ah)->ah_eeprom;
+	HAL_EEPROM_9287 *ee = AH_PRIVATE(ah)->ah_eeprom;
 
 	ath_hal_free(ee);
 	AH_PRIVATE(ah)->ah_eeprom = AH_NULL;
@@ -326,27 +289,22 @@ v14EepromDetach(struct ath_hal *ah)
 #define owl_get_eep_rev(_ee)   \
     (((_ee)->ee_base.baseEepHeader.version) & 0xFFF)
 
-/*
- * Howl is (hopefully) a special case where the endian-ness of the EEPROM
- * matches the native endian-ness; and that supplied EEPROMs don't have
- * a magic value to check.
- */
 HAL_STATUS
-ath_hal_v14EepromAttach(struct ath_hal *ah)
+ath_hal_9287EepromAttach(struct ath_hal *ah)
 {
 #define	NW(a)	(sizeof(a) / sizeof(uint16_t))
-	HAL_EEPROM_v14 *ee = AH_PRIVATE(ah)->ah_eeprom;
+	HAL_EEPROM_9287 *ee = AH_PRIVATE(ah)->ah_eeprom;
 	uint16_t *eep_data, magic;
 	HAL_BOOL need_swap;
 	u_int w, off, len;
 	uint32_t sum;
 
 	HALASSERT(ee == AH_NULL);
- 
+
 	/*
 	 * Don't check magic if we're supplied with an EEPROM block,
 	 * typically this is from Howl but it may also be from later
-	 * boards w/ an embedded Merlin.
+	 * boards w/ an embedded WMAC.
 	 */
 	if (ah->ah_eepromdata == NULL) {
 		if (!ath_hal_eepromRead(ah, AR5416_EEPROM_MAGIC_OFFSET, &magic)) {
@@ -362,15 +320,15 @@ ath_hal_v14EepromAttach(struct ath_hal *ah)
 		}
 	}
 
-	ee = ath_hal_malloc(sizeof(HAL_EEPROM_v14));
+	ee = ath_hal_malloc(sizeof(HAL_EEPROM_9287));
 	if (ee == AH_NULL) {
 		/* XXX message */
 		return HAL_ENOMEM;
 	}
 
-	eep_data = (uint16_t *)&ee->ee_base;
-	for (w = 0; w < NW(struct ar5416eeprom); w++) {
-		off = owl_eep_start_loc + w;	/* NB: AP71 starts at 0 */
+	eep_data = (uint16_t *) ee;
+	for (w = 0; w < NW(struct ar9287_eeprom); w++) {
+		off = AR9287_EEP_START_LOC + w;
 		if (!ath_hal_eepromRead(ah, off, &eep_data[w])) {
 			HALDEBUG(ah, HAL_DEBUG_ANY,
 			    "%s eeprom read error at offset 0x%x\n",
@@ -379,9 +337,12 @@ ath_hal_v14EepromAttach(struct ath_hal *ah)
 		}
 	}
 	/* Convert to eeprom native eeprom endian format */
-	/* XXX this is likely incorrect but will do for now to get howl/ap83 working. */
+	/*
+	 * XXX this is likely incorrect but will do for now
+	 * XXX to get embedded boards working.
+	 */
 	if (ah->ah_eepromdata == NULL && isBigEndian()) {
-		for (w = 0; w < NW(struct ar5416eeprom); w++)
+		for (w = 0; w < NW(HAL_EEPROM_9287); w++)
 			eep_data[w] = __bswap16(eep_data[w]);
 	}
 
@@ -397,7 +358,7 @@ ath_hal_v14EepromAttach(struct ath_hal *ah)
 	} else {
 		len = ee->ee_base.baseEepHeader.length;
 	}
-	len = AH_MIN(len, sizeof(struct ar5416eeprom)) / sizeof(uint16_t);
+	len = AH_MIN(len, sizeof(HAL_EEPROM_9287)) / sizeof(uint16_t);
 	
 	/* Apply the checksum, done in native eeprom format */
 	/* XXX - Need to check to make sure checksum calculation is done
@@ -417,7 +378,7 @@ ath_hal_v14EepromAttach(struct ath_hal *ah)
 	}
 
 	if (need_swap)
-		eepromSwap(&ee->ee_base);	/* byte swap multi-byte data */
+		eepromSwap(ee);	/* byte swap multi-byte data */
 
 	/* swap words 0+2 so version is at the front */
 	magic = eep_data[0];
@@ -435,15 +396,15 @@ ath_hal_v14EepromAttach(struct ath_hal *ah)
 		return HAL_EEBADSUM;
 	}
 
-	v14EepromReadCTLInfo(ah, ee);		/* Get CTLs */
+	v9287EepromReadCTLInfo(ah, ee);		/* Get CTLs */
 
 	AH_PRIVATE(ah)->ah_eeprom = ee;
 	AH_PRIVATE(ah)->ah_eeversion = ee->ee_base.baseEepHeader.version;
-	AH_PRIVATE(ah)->ah_eepromDetach = v14EepromDetach;
-	AH_PRIVATE(ah)->ah_eepromGet = v14EepromGet;
-	AH_PRIVATE(ah)->ah_eepromSet = v14EepromSet;
-	AH_PRIVATE(ah)->ah_getSpurChan = v14EepromGetSpurChan;
-	AH_PRIVATE(ah)->ah_eepromDiag = v14EepromDiag;
+	AH_PRIVATE(ah)->ah_eepromDetach = v9287EepromDetach;
+	AH_PRIVATE(ah)->ah_eepromGet = v9287EepromGet;
+	AH_PRIVATE(ah)->ah_eepromSet = v9287EepromSet;
+	AH_PRIVATE(ah)->ah_getSpurChan = v9287EepromGetSpurChan;
+	AH_PRIVATE(ah)->ah_eepromDiag = v9287EepromDiag;
 	return HAL_OK;
 #undef NW
 }

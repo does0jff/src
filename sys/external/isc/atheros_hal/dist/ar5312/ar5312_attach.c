@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2008 Atheros Communications, Inc.
  *
@@ -14,7 +16,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5312_attach.c,v 1.3 2011/03/07 11:25:43 cegger Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
@@ -61,7 +63,8 @@ ar5312AniSetup(struct ath_hal *ah)
  */
 static struct ath_hal *
 ar5312Attach(uint16_t devid, HAL_SOFTC sc,
-	HAL_BUS_TAG st, HAL_BUS_HANDLE sh, HAL_STATUS *status)
+	HAL_BUS_TAG st, HAL_BUS_HANDLE sh, uint16_t *eepromdata,
+	HAL_OPS_CONFIG *ah_config, HAL_STATUS *status)
 {
 	struct ath_hal_5212 *ahp = AH_NULL;
 	struct ath_hal *ah;

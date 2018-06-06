@@ -1,5 +1,7 @@
-/*
- * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
+/*-
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2002-2009 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2008 Atheros Communications, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -14,7 +16,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5212_attach.c,v 1.4 2011/03/07 11:25:43 cegger Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
@@ -29,13 +31,12 @@
 #define AH_5212_COMMON
 #include "ar5212/ar5212.ini"
 
-static void ar5212ConfigPCIE(struct ath_hal *ah, HAL_BOOL restore);
+static void ar5212ConfigPCIE(struct ath_hal *ah, HAL_BOOL restore,
+		HAL_BOOL power_off);
 static void ar5212DisablePCIE(struct ath_hal *ah);
 
 static const struct ath_hal_private ar5212hal = {{
 	.ah_magic			= AR5212_MAGIC,
-	.ah_abi				= HAL_ABI_VERSION,
-	.ah_countryCode			= CTRY_DEFAULT,
 
 	.ah_getRateTable		= ar5212GetRateTable,
 	.ah_detach			= ar5212Detach,
@@ -71,6 +72,10 @@ static const struct ath_hal_private ar5212hal = {{
 	.ah_procTxDesc			= ar5212ProcTxDesc,
 	.ah_getTxIntrQueue		= ar5212GetTxIntrQueue,
 	.ah_reqTxIntrDesc 		= ar5212IntrReqTxDesc,
+	.ah_getTxCompletionRates	= ar5212GetTxCompletionRates,
+	.ah_setTxDescLink		= ar5212SetTxDescLink,
+	.ah_getTxDescLink		= ar5212GetTxDescLink,
+	.ah_getTxDescLinkPtr		= ar5212GetTxDescLinkPtr,
 
 	/* RX Functions */
 	.ah_getRxDP			= ar5212GetRxDP,
@@ -86,7 +91,8 @@ static const struct ath_hal_private ar5212hal = {{
 	.ah_setRxFilter			= ar5212SetRxFilter,
 	.ah_setupRxDesc			= ar5212SetupRxDesc,
 	.ah_procRxDesc			= ar5212ProcRxDesc,
-	.ah_rxMonitor			= ar5212AniPoll,
+	.ah_rxMonitor			= ar5212RxMonitor,
+	.ah_aniPoll			= ar5212AniPoll,
 	.ah_procMibEvent		= ar5212ProcessMibIntr,
 
 	/* Misc Functions */
@@ -107,6 +113,7 @@ static const struct ath_hal_private ar5212hal = {{
 	.ah_gpioSetIntr			= ar5212GpioSetIntr,
 	.ah_getTsf32			= ar5212GetTsf32,
 	.ah_getTsf64			= ar5212GetTsf64,
+	.ah_setTsf64			= ar5212SetTsf64,
 	.ah_resetTsf			= ar5212ResetTsf,
 	.ah_detectCardPresent		= ar5212DetectCardPresent,
 	.ah_updateMibCounters		= ar5212UpdateMibCounters,
@@ -125,8 +132,19 @@ static const struct ath_hal_private ar5212hal = {{
 	.ah_getAckCTSRate		= ar5212GetAckCTSRate,
 	.ah_setCTSTimeout		= ar5212SetCTSTimeout,
 	.ah_getCTSTimeout		= ar5212GetCTSTimeout,
-	.ah_setDecompMask               = ar5212SetDecompMask,
-	.ah_setCoverageClass            = ar5212SetCoverageClass,
+	.ah_setDecompMask		= ar5212SetDecompMask,
+	.ah_setCoverageClass		= ar5212SetCoverageClass,
+	.ah_setQuiet			= ar5212SetQuiet,
+	.ah_getMibCycleCounts		= ar5212GetMibCycleCounts,
+	.ah_setChainMasks		= ar5212SetChainMasks,
+
+	/* DFS Functions */
+	.ah_enableDfs			= ar5212EnableDfs,
+	.ah_getDfsThresh		= ar5212GetDfsThresh,
+	.ah_getDfsDefaultThresh		= ar5212GetDfsDefaultThresh,
+	.ah_procRadarEvent		= ar5212ProcessRadarEvent,
+	.ah_isFastClockEnabled		= ar5212IsFastClockEnabled,
+	.ah_get11nExtBusy		= ar5212Get11nExtBusy,
 
 	/* Key Cache Functions */
 	.ah_getKeyCacheSize		= ar5212GetKeyCacheSize,
@@ -144,6 +162,7 @@ static const struct ath_hal_private ar5212hal = {{
 	.ah_beaconInit			= ar5212BeaconInit,
 	.ah_setStationBeaconTimers	= ar5212SetStaBeaconTimers,
 	.ah_resetStationBeaconTimers	= ar5212ResetStaBeaconTimers,
+	.ah_getNextTBTT			= ar5212GetNextTBTT,
 
 	/* Interrupt Functions */
 	.ah_isInterruptPending		= ar5212IsInterruptPending,
@@ -157,11 +176,6 @@ static const struct ath_hal_private ar5212hal = {{
 #ifdef AH_SUPPORT_WRITE_EEPROM
 	.ah_eepromWrite			= ar5212EepromWrite,
 #endif
-	.ah_gpioCfgOutput		= ar5212GpioCfgOutput,
-	.ah_gpioCfgInput		= ar5212GpioCfgInput,
-	.ah_gpioGet			= ar5212GpioGet,
-	.ah_gpioSet			= ar5212GpioSet,
-	.ah_gpioSetIntr			= ar5212GpioSetIntr,
 	.ah_getChipPowerLimits		= ar5212GetChipPowerLimits,
 };
 
@@ -208,6 +222,9 @@ ar5212AniSetup(struct ath_hal *ah)
 		ar5212AniAttach(ah, &tmp, &tmp, AH_TRUE);
 	} else
 		ar5212AniAttach(ah, &aniparams, &aniparams, AH_TRUE);
+
+	/* Set overridable ANI methods */
+	AH5212(ah)->ah_aniControl = ar5212AniControl;
 }
 
 /*
@@ -301,7 +318,8 @@ ar5212IsMacSupported(uint8_t macVersion, uint8_t macRev)
  */
 static struct ath_hal *
 ar5212Attach(uint16_t devid, HAL_SOFTC sc,
-	HAL_BUS_TAG st, HAL_BUS_HANDLE sh, HAL_STATUS *status)
+	HAL_BUS_TAG st, HAL_BUS_HANDLE sh, uint16_t *eepromdata,
+	HAL_OPS_CONFIG *ah_config, HAL_STATUS *status)
 {
 #define	AH_EEPROM_PROTECT(ah) \
 	(AH_PRIVATE(ah)->ah_ispcie)? AR_EEPROM_PROTECT_PCIE : AR_EEPROM_PROTECT)
@@ -361,7 +379,7 @@ ar5212Attach(uint16_t devid, HAL_SOFTC sc,
 
 	if (AH_PRIVATE(ah)->ah_ispcie) {
 		/* XXX: build flag to disable this? */
-		ath_hal_configPCIE(ah, AH_FALSE);
+		ath_hal_configPCIE(ah, AH_FALSE, AH_FALSE);
 	}
 
 	if (!ar5212ChipTest(ah)) {
@@ -632,12 +650,12 @@ HAL_BOOL
 ar5212GetChannelEdges(struct ath_hal *ah,
 	uint16_t flags, uint16_t *low, uint16_t *high)
 {
-	if (flags & CHANNEL_5GHZ) {
+	if (flags & IEEE80211_CHAN_5GHZ) {
 		*low = 4915;
 		*high = 6100;
 		return AH_TRUE;
 	}
-	if ((flags & CHANNEL_2GHZ) &&
+	if ((flags & IEEE80211_CHAN_2GHZ) &&
 	    (ath_hal_eepromGetFlag(ah, AR_EEP_BMODE) ||
 	     ath_hal_eepromGetFlag(ah, AR_EEP_GMODE))) {
 		*low = 2312;
@@ -657,7 +675,7 @@ ar5212GetChannelEdges(struct ath_hal *ah,
  * XXX Clean up the magic numbers.
  */
 static void
-ar5212ConfigPCIE(struct ath_hal *ah, HAL_BOOL restore)
+ar5212ConfigPCIE(struct ath_hal *ah, HAL_BOOL restore, HAL_BOOL power_off)
 {
 	OS_REG_WRITE(ah, AR_PCIE_SERDES, 0x9248fc00);
 	OS_REG_WRITE(ah, AR_PCIE_SERDES, 0x24924924);
@@ -772,7 +790,29 @@ ar5212FillCapabilityInfo(struct ath_hal *ah)
 	else
 		pCap->halHigh2GhzChan = 2732;
 
-	pCap->halLow5GhzChan = 4915;
+	/*
+	 * For AR5111 version < 4, the lowest centre frequency supported is
+	 * 5130MHz.  For AR5111 version 4, the 4.9GHz channels are supported
+	 * but only in 10MHz increments.
+	 *
+	 * In addition, the programming method is wrong - it uses the IEEE
+	 * channel number to calculate the frequency, rather than the
+	 * channel centre.  Since half/quarter rates re-use some of the
+	 * 5GHz channel IEEE numbers, this will result in a badly programmed
+	 * synth.
+	 *
+	 * Until the relevant support is written, just limit lower frequency
+	 * support for AR5111 so things aren't incorrectly programmed.
+	 *
+	 * XXX It's also possible this code doesn't correctly limit the
+	 * centre frequencies of potential channels; this is very important
+	 * for half/quarter rate!
+	 */
+	if (AH_RADIO_MAJOR(ah) == AR_RAD5111_SREV_MAJOR) {
+		pCap->halLow5GhzChan = 5120; /* XXX lowest centre = 5130MHz */
+	} else {
+		pCap->halLow5GhzChan = 4915;
+	}
 	pCap->halHigh5GhzChan = 6100;
 
 	pCap->halCipherCkipSupport = AH_FALSE;
@@ -811,6 +851,8 @@ ar5212FillCapabilityInfo(struct ath_hal *ah)
 	pCap->halTurboGSupport = pCap->halWirelessModes & HAL_MODE_108G;
 
 	pCap->halPSPollBroken = AH_TRUE;	/* XXX fixed in later revs? */
+	pCap->halNumMRRetries = 4;		/* Hardware supports 4 MRR */
+	pCap->halNumTxMaps = 1;			/* Single TX ptr per descr */
 	pCap->halVEOLSupport = AH_TRUE;
 	pCap->halBssIdMaskSupport = AH_TRUE;
 	pCap->halMcastKeySrchSupport = AH_TRUE;
@@ -832,6 +874,12 @@ ar5212FillCapabilityInfo(struct ath_hal *ah)
 	pCap->halChanHalfRate = AH_TRUE;
 	pCap->halChanQuarterRate = AH_TRUE;
 
+	/*
+	 * RSSI uses the combined field; some 11n NICs may use
+	 * the control chain RSSI.
+	 */
+	pCap->halUseCombinedRadarRssi = AH_TRUE;
+
 	if (ath_hal_eepromGetFlag(ah, AR_EEP_RFKILL) &&
 	    ath_hal_eepromGet(ah, AR_EEP_RFSILENT, &ahpriv->ah_rfsilent) == HAL_OK) {
 		/* NB: enabled by default */
@@ -839,7 +887,7 @@ ar5212FillCapabilityInfo(struct ath_hal *ah)
 		pCap->halRfSilentSupport = AH_TRUE;
 	}
 
-	/* NB: this is a guess, noone seems to know the answer */
+	/* NB: this is a guess, no one seems to know the answer */
 	ahpriv->ah_rxornIsFatal =
 	    (AH_PRIVATE(ah)->ah_macVersion < AR_SREV_VERSION_VENICE);
 
@@ -853,7 +901,8 @@ ar5212FillCapabilityInfo(struct ath_hal *ah)
 		pCap->halBssidMatchSupport = AH_TRUE;
 	}
 
-	pCap->halTstampPrecision = 15;
+	pCap->halRxTstampPrecision = 15;
+	pCap->halTxTstampPrecision = 16;
 	pCap->halIntrMask = HAL_INT_COMMON
 			| HAL_INT_RX
 			| HAL_INT_TX
@@ -861,9 +910,11 @@ ar5212FillCapabilityInfo(struct ath_hal *ah)
 			| HAL_INT_BNR
 			| HAL_INT_BMISC
 			;
-
 	if (AH_PRIVATE(ah)->ah_macVersion < AR_SREV_VERSION_GRIFFIN)
 		pCap->halIntrMask &= ~HAL_INT_TBTT;
+
+	pCap->hal4kbSplitTransSupport = AH_TRUE;
+	pCap->halHasRxSelfLinkedTail = AH_TRUE;
 
 	return AH_TRUE;
 #undef IS_COBRA

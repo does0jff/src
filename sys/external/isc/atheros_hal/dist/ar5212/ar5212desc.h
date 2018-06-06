@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2008 Atheros Communications, Inc.
  *
@@ -14,7 +16,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5212desc.h,v 1.1.1.1 2008/12/11 04:46:43 alc Exp $
+ * $FreeBSD$
  */
 #ifndef _ATH_AR5212_DESC_H_
 #define _ATH_AR5212_DESC_H_
@@ -22,7 +24,6 @@
 /*
  * Hardware-specific descriptor structures.
  */
-#include "ah_desc.h"
 
 /*
  * AR5212-specific tx/rx descriptor definition.

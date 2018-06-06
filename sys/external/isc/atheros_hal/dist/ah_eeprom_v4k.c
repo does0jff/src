@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2009 Rui Paulo <rpaulo@FreeBSD.org>
  * Copyright (c) 2008 Sam Leffler, Errno Consulting
  * Copyright (c) 2008 Atheros Communications, Inc.
@@ -15,7 +17,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $FreeBSD: src/sys/dev/ath/ath_hal/ah_eeprom_v4k.c,v 1.1.2.3.2.1 2010/06/14 02:09:06 kensmith Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
@@ -65,9 +67,9 @@ v4kEepromGet(struct ath_hal *ah, int param, void *val)
         case AR_EEP_RFSILENT:
 		return pBase->rfSilent;
     	case AR_EEP_OB_2:
-		return pModal->ob;
+		return pModal->ob_0;
     	case AR_EEP_DB_2:
-		return pModal->db;
+		return pModal->db1_1;
 	case AR_EEP_TXMASK:
 		return pBase->txMask;
 	case AR_EEP_RXMASK:
@@ -75,8 +77,7 @@ v4kEepromGet(struct ath_hal *ah, int param, void *val)
 	case AR_EEP_RXGAIN_TYPE:
 		return AR5416_EEP_RXGAIN_ORIG;
 	case AR_EEP_TXGAIN_TYPE:
-		return IS_VERS(>=, AR5416_EEP_MINOR_VER_19) ?
-		    pBase->txGainType : AR5416_EEP_TXGAIN_ORIG;
+		return pBase->txGainType;
 	case AR_EEP_OL_PWRCTRL:
 		HALASSERT(val == AH_NULL);
 		return HAL_EIO;
@@ -116,7 +117,7 @@ v4kEepromGet(struct ath_hal *ah, int param, void *val)
 #undef CHAN_B_IDX
 }
 
-static HAL_BOOL
+static HAL_STATUS
 v4kEepromSet(struct ath_hal *ah, int param, int v)
 {
 	HAL_EEPROM_v4k *ee = AH_PRIVATE(ah)->ah_eeprom;
@@ -137,8 +138,8 @@ v4kEepromDiag(struct ath_hal *ah, int request,
 
 	switch (request) {
 	case HAL_DIAG_EEPROM:
-		*result = &ee->ee_base;
-		*resultsize = sizeof(ee->ee_base);
+		*result = ee;
+		*resultsize = sizeof(HAL_EEPROM_v4k);
 		return AH_TRUE;
 	}
 	return AH_FALSE;
@@ -238,8 +239,8 @@ v4kEepromReadCTLInfo(struct ath_hal *ah, HAL_EEPROM_v4k *ee)
 	
 	HALASSERT(AR5416_4K_NUM_CTLS <= sizeof(ee->ee_rdEdgesPower)/NUM_EDGES);
 
-	for (i = 0; i < AR5416_4K_NUM_CTLS && ee->ee_base.ctlIndex[i] != 0; i++) {
-		for (j = 0; j < AR5416_4K_NUM_BAND_EDGES; j ++) {
+	for (i = 0; ee->ee_base.ctlIndex[i] != 0 && i < AR5416_4K_NUM_CTLS; i++) {
+		for (j = 0; j < NUM_EDGES; j ++) {
 			/* XXX Confirm this is the right thing to do when an invalid channel is stored */
 			if (ee->ee_base.ctlData[i].ctlEdges[CTL_CHAIN][j].bChannel == AR5416_BCHAN_UNUSED) {
 				rep[j].rdEdge = 0;
@@ -288,17 +289,23 @@ ath_hal_v4kEepromAttach(struct ath_hal *ah)
 	uint32_t sum;
 
 	HALASSERT(ee == AH_NULL);
- 
-	if (!ath_hal_eepromRead(ah, AR5416_EEPROM_MAGIC_OFFSET, &magic)) {
-		HALDEBUG(ah, HAL_DEBUG_ANY,
-		    "%s Error reading Eeprom MAGIC\n", __func__);
-		return HAL_EEREAD;
-	}
-	HALDEBUG(ah, HAL_DEBUG_ATTACH, "%s Eeprom Magic = 0x%x\n",
-	    __func__, magic);
-	if (magic != AR5416_EEPROM_MAGIC) {
-		HALDEBUG(ah, HAL_DEBUG_ANY, "Bad magic number\n");
-		return HAL_EEMAGIC;
+	/*
+	 * Don't check magic if we're supplied with an EEPROM block,
+	 * typically this is from Howl but it may also be from later
+	 * boards w/ an embedded WMAC.
+	 */
+	if (ah->ah_eepromdata == NULL) {
+		if (!ath_hal_eepromRead(ah, AR5416_EEPROM_MAGIC_OFFSET, &magic)) {
+			HALDEBUG(ah, HAL_DEBUG_ANY,
+			    "%s Error reading Eeprom MAGIC\n", __func__);
+			return HAL_EEREAD;
+		}
+		HALDEBUG(ah, HAL_DEBUG_ATTACH, "%s Eeprom Magic = 0x%x\n",
+		    __func__, magic);
+		if (magic != AR5416_EEPROM_MAGIC) {
+			HALDEBUG(ah, HAL_DEBUG_ANY, "Bad magic number\n");
+			return HAL_EEMAGIC;
+		}
 	}
 
 	ee = ath_hal_malloc(sizeof(HAL_EEPROM_v4k));
@@ -318,7 +325,11 @@ ath_hal_v4kEepromAttach(struct ath_hal *ah)
 		}
 	}
 	/* Convert to eeprom native eeprom endian format */
-	if (isBigEndian()) {
+	/*
+	 * XXX this is likely incorrect but will do for now
+	 * XXX to get embedded boards working.
+	 */
+	if (ah->ah_eepromdata == NULL && isBigEndian()) {
 		for (w = 0; w < NW(struct ar5416eeprom_4k); w++)
 			eep_data[w] = __bswap16(eep_data[w]);
 	}

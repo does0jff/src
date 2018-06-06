@@ -1,5 +1,7 @@
-/*
- * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
+/*-
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2002-2009 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2008 Atheros Communications, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -14,16 +16,14 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5212_misc.c,v 1.3 2012/02/12 13:48:45 wiz Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
 #include "ah.h"
 #include "ah_internal.h"
 #include "ah_devid.h"
-#ifdef AH_DEBUG
 #include "ah_desc.h"			/* NB: for HAL_PHYERR* */
-#endif
 
 #include "ar5212/ar5212.h"
 #include "ar5212/ar5212reg.h"
@@ -33,8 +33,6 @@
 
 #define	AR_NUM_GPIO	6		/* 6 GPIO pins */
 #define	AR_GPIOD_MASK	0x0000002F	/* GPIO data reg r/w mask */
-
-extern void ar5212SetRateDurationTable(struct ath_hal *, HAL_CHANNEL *);
 
 void
 ar5212GetMacAddress(struct ath_hal *ah, uint8_t *mac)
@@ -222,8 +220,9 @@ ar5212WriteAssocid(struct ath_hal *ah, const uint8_t *bssid, uint16_t assocId)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
 
-	/* XXX save bssid for possible re-use on reset */
+	/* save bssid for possible re-use on reset */
 	OS_MEMCPY(ahp->ah_bssid, bssid, IEEE80211_ADDR_LEN);
+	ahp->ah_assocId = assocId;
 	OS_REG_WRITE(ah, AR_BSS_ID0, LE_READ_4(ahp->ah_bssid));
 	OS_REG_WRITE(ah, AR_BSS_ID1, LE_READ_2(ahp->ah_bssid+4) |
 				     ((assocId & 0x3fff)<<AR_BSS_ID1_AID_S));
@@ -266,6 +265,13 @@ ar5212GetTsf32(struct ath_hal *ah)
 	return OS_REG_READ(ah, AR_TSF_L32);
 }
 
+void
+ar5212SetTsf64(struct ath_hal *ah, uint64_t tsf64)
+{
+	OS_REG_WRITE(ah, AR_TSF_L32, tsf64 & 0xffffffff);
+	OS_REG_WRITE(ah, AR_TSF_U32, (tsf64 >> 32) & 0xffffffff);
+}
+
 /*
  * Reset the current hardware tsf for stamlme.
  */
@@ -294,12 +300,12 @@ ar5212ResetTsf(struct ath_hal *ah)
 void
 ar5212SetBasicRate(struct ath_hal *ah, HAL_RATE_SET *rs)
 {
-	HAL_CHANNEL_INTERNAL *chan = AH_PRIVATE(ah)->ah_curchan;
+	const struct ieee80211_channel *chan = AH_PRIVATE(ah)->ah_curchan;
 	uint32_t reg;
 	uint8_t xset;
 	int i;
 
-	if (chan == AH_NULL || !IS_CHAN_CCK(chan))
+	if (chan == AH_NULL || !IEEE80211_IS_CHAN_CCK(chan))
 		return;
 	xset = 0;
 	for (i = 0; i < rs->rs_count; i++) {
@@ -423,15 +429,15 @@ HAL_BOOL
 ar5212SetAntennaSwitch(struct ath_hal *ah, HAL_ANT_SETTING setting)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
-	const HAL_CHANNEL_INTERNAL *ichan = AH_PRIVATE(ah)->ah_curchan;
+	const struct ieee80211_channel *chan = AH_PRIVATE(ah)->ah_curchan;
 
-	if (!ahp->ah_phyPowerOn || ichan == AH_NULL) {
+	if (!ahp->ah_phyPowerOn || chan == AH_NULL) {
 		/* PHY powered off, just stash settings */
 		ahp->ah_antControl = setting;
 		ahp->ah_diversity = (setting == HAL_ANT_VARIABLE);
 		return AH_TRUE;
 	}
-	return ar5212SetAntennaSwitchInternal(ah, setting, ichan);
+	return ar5212SetAntennaSwitchInternal(ah, setting, chan);
 }
 
 HAL_BOOL
@@ -453,7 +459,7 @@ ar5212SetSifsTime(struct ath_hal *ah, u_int us)
 	} else {
 		/* convert to system clocks */
 		OS_REG_WRITE(ah, AR_D_GBL_IFS_SIFS, ath_hal_mac_clks(ah, us-2));
-		ahp->ah_slottime = us;
+		ahp->ah_sifstime = us;
 		return AH_TRUE;
 	}
 }
@@ -570,7 +576,7 @@ ar5212SetDecompMask(struct ath_hal *ah, uint16_t keyidx, int en)
 	struct ath_hal_5212 *ahp = AH5212(ah);
 
         if (keyidx >= HAL_DECOMP_MASK_SIZE)
-                return AH_FALSE; 
+                return AH_FALSE;
         OS_REG_WRITE(ah, AR_DCM_A, keyidx);
         OS_REG_WRITE(ah, AR_DCM_D, en ? AR_DCM_D_EN : 0);
         ahp->ah_decompMask[keyidx] = en;
@@ -592,7 +598,7 @@ ar5212SetCoverageClass(struct ath_hal *ah, uint8_t coverageclass, int now)
 			return;
 
 		/* Don't apply coverage class to non A channels */
-		if (!IS_CHAN_A(AH_PRIVATE(ah)->ah_curchan))
+		if (!IEEE80211_IS_CHAN_A(AH_PRIVATE(ah)->ah_curchan))
 			return;
 
 		/* Get core clock rate */
@@ -601,10 +607,10 @@ ar5212SetCoverageClass(struct ath_hal *ah, uint8_t coverageclass, int now)
 		/* Compute EIFS */
 		slot = coverageclass * 3 * clkRate;
 		eifs = coverageclass * 6 * clkRate;
-		if (IS_CHAN_HALF_RATE(AH_PRIVATE(ah)->ah_curchan)) {
+		if (IEEE80211_IS_CHAN_HALF(AH_PRIVATE(ah)->ah_curchan)) {
 			slot += IFS_SLOT_HALF_RATE;
 			eifs += IFS_EIFS_HALF_RATE;
-		} else if (IS_CHAN_QUARTER_RATE(AH_PRIVATE(ah)->ah_curchan)) {
+		} else if (IEEE80211_IS_CHAN_QUARTER(AH_PRIVATE(ah)->ah_curchan)) {
 			slot += IFS_SLOT_QUARTER_RATE;
 			eifs += IFS_EIFS_QUARTER_RATE;
 		} else { /* full rate */
@@ -627,6 +633,20 @@ ar5212SetCoverageClass(struct ath_hal *ah, uint8_t coverageclass, int now)
 			  SM(timeout, AR_TIME_OUT_CTS)
 			| SM(timeout, AR_TIME_OUT_ACK));
 	}
+}
+
+HAL_STATUS
+ar5212SetQuiet(struct ath_hal *ah, uint32_t period, uint32_t duration,
+    uint32_t nextStart, HAL_QUIET_FLAG flag)
+{
+	OS_REG_WRITE(ah, AR_QUIET2, period | (duration << AR_QUIET2_QUIET_DUR_S));
+	if (flag & HAL_QUIET_ENABLE) {
+		OS_REG_WRITE(ah, AR_QUIET1, nextStart | (1 << 16));
+	}
+	else {
+		OS_REG_WRITE(ah, AR_QUIET1, nextStart);
+	}
+	return HAL_OK;
 }
 
 void
@@ -825,6 +845,10 @@ ar5212GetCapability(struct ath_hal *ah, HAL_CAPABILITY_TYPE type,
 			return HAL_OK;
 		case 1:			/* current setting */
 			return ahp->ah_diversity ? HAL_OK : HAL_ENXIO;
+		case HAL_CAP_STRONG_DIV:
+			*result = OS_REG_READ(ah, AR_PHY_RESTART);
+			*result = MS(*result, AR_PHY_RESTART_DIV_GC);
+			return HAL_OK;
 		}
 		return HAL_EINVAL;
 	case HAL_CAP_DIAG:
@@ -852,7 +876,7 @@ ar5212GetCapability(struct ath_hal *ah, HAL_CAPABILITY_TYPE type,
 	case HAL_CAP_MCAST_KEYSRCH:	/* multicast frame keycache search */
 		switch (capability) {
 		case 0:			/* hardware capability */
-			return HAL_OK;
+			return pCap->halMcastKeySrchSupport ? HAL_OK : HAL_ENXIO;
 		case 1:
 			return (ahp->ah_staId1Defaults &
 			    AR_STA_ID1_MCAST_KSRCH) ? HAL_OK : HAL_ENXIO;
@@ -875,16 +899,16 @@ ar5212GetCapability(struct ath_hal *ah, HAL_CAPABILITY_TYPE type,
 		return HAL_OK;
 	case HAL_CAP_INTMIT:		/* interference mitigation */
 		switch (capability) {
-		case 0:			/* hardware capability */
+		case HAL_CAP_INTMIT_PRESENT:		/* hardware capability */
 			return HAL_OK;
-		case 1:
+		case HAL_CAP_INTMIT_ENABLE:
 			return (ahp->ah_procPhyErr & HAL_ANI_ENA) ?
 				HAL_OK : HAL_ENXIO;
-		case 2:			/* HAL_ANI_NOISE_IMMUNITY_LEVEL */
-		case 3:			/* HAL_ANI_OFDM_WEAK_SIGNAL_DETECTION */
-		case 4:			/* HAL_ANI_CCK_WEAK_SIGNAL_THR */
-		case 5:			/* HAL_ANI_FIRSTEP_LEVEL */
-		case 6:			/* HAL_ANI_SPUR_IMMUNITY_LEVEL */
+		case HAL_CAP_INTMIT_NOISE_IMMUNITY_LEVEL:
+		case HAL_CAP_INTMIT_OFDM_WEAK_SIGNAL_LEVEL:
+		case HAL_CAP_INTMIT_CCK_WEAK_SIGNAL_THR:
+		case HAL_CAP_INTMIT_FIRSTEP_LEVEL:
+		case HAL_CAP_INTMIT_SPUR_IMMUNITY_LEVEL:
 			ani = ar5212AniGetCurrentState(ah);
 			if (ani == AH_NULL)
 				return HAL_ENXIO;
@@ -929,19 +953,37 @@ ar5212SetCapability(struct ath_hal *ah, HAL_CAPABILITY_TYPE type,
 		else
 			ahp->ah_miscMode |= AR_MISC_MODE_MIC_NEW_LOC_ENABLE;
 		/* NB: write here so keys can be setup w/o a reset */
-		OS_REG_WRITE(ah, AR_MISC_MODE, ahp->ah_miscMode);
+		OS_REG_WRITE(ah, AR_MISC_MODE, OS_REG_READ(ah, AR_MISC_MODE) | ahp->ah_miscMode);
 		return AH_TRUE;
 	case HAL_CAP_DIVERSITY:
-		if (ahp->ah_phyPowerOn) {
-			v = OS_REG_READ(ah, AR_PHY_CCK_DETECT);
-			if (setting)
-				v |= AR_PHY_CCK_DETECT_BB_ENABLE_ANT_FAST_DIV;
-			else
-				v &= ~AR_PHY_CCK_DETECT_BB_ENABLE_ANT_FAST_DIV;
-			OS_REG_WRITE(ah, AR_PHY_CCK_DETECT, v);
+		switch (capability) {
+		case 0:
+			return AH_FALSE;
+		case 1:	/* setting */
+			if (ahp->ah_phyPowerOn) {
+				if (capability == HAL_CAP_STRONG_DIV) {
+					v = OS_REG_READ(ah, AR_PHY_CCK_DETECT);
+					if (setting)
+						v |= AR_PHY_CCK_DETECT_BB_ENABLE_ANT_FAST_DIV;
+					else
+						v &= ~AR_PHY_CCK_DETECT_BB_ENABLE_ANT_FAST_DIV;
+					OS_REG_WRITE(ah, AR_PHY_CCK_DETECT, v);
+				}
+			}
+			ahp->ah_diversity = (setting != 0);
+			return AH_TRUE;
+
+		case HAL_CAP_STRONG_DIV:
+			if (! ahp->ah_phyPowerOn)
+				return AH_FALSE;
+			v = OS_REG_READ(ah, AR_PHY_RESTART);
+			v &= ~AR_PHY_RESTART_DIV_GC;
+			v |= SM(setting, AR_PHY_RESTART_DIV_GC);
+			OS_REG_WRITE(ah, AR_PHY_RESTART, v);
+			return AH_TRUE;
+		default:
+			return AH_FALSE;
 		}
-		ahp->ah_diversity = (setting != 0);
-		return AH_TRUE;
 	case HAL_CAP_DIAG:		/* hardware diagnostic support */
 		/*
 		 * NB: could split this up into virtual capabilities,
@@ -975,6 +1017,8 @@ ar5212SetCapability(struct ath_hal *ah, HAL_CAPABILITY_TYPE type,
 		OS_REG_WRITE(ah, AR_TPC, ahp->ah_macTPC);
 		return AH_TRUE;
 	case HAL_CAP_INTMIT: {		/* interference mitigation */
+		/* This maps the public ANI commands to the internal ANI commands */
+		/* Private: HAL_ANI_CMD; Public: HAL_CAP_INTMIT_CMD */
 		static const HAL_ANI_CMD cmds[] = {
 			HAL_ANI_PRESENT,
 			HAL_ANI_MODE,
@@ -985,7 +1029,7 @@ ar5212SetCapability(struct ath_hal *ah, HAL_CAPABILITY_TYPE type,
 			HAL_ANI_SPUR_IMMUNITY_LEVEL,
 		};
 		return capability < N(cmds) ?
-			ar5212AniControl(ah, cmds[capability], setting) :
+			AH5212(ah)->ah_aniControl(ah, cmds[capability], setting) :
 			AH_FALSE;
 	}
 	case HAL_CAP_TSF_ADJUST:	/* hardware has beacon tsf adjust */
@@ -1010,6 +1054,7 @@ ar5212GetDiagState(struct ath_hal *ah, int request,
 	void **result, uint32_t *resultsize)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
+	HAL_ANI_STATS *astats;
 
 	(void) ahp;
 	if (ath_hal_getdiagstate(ah, request, args, argsize, result, resultsize))
@@ -1041,14 +1086,21 @@ ar5212GetDiagState(struct ath_hal *ah, int request,
 			0 : sizeof(struct ar5212AniState);
 		return AH_TRUE;
 	case HAL_DIAG_ANI_STATS:
-		*result = ar5212AniGetCurrentStats(ah);
-		*resultsize = (*result == AH_NULL) ?
-			0 : sizeof(struct ar5212Stats);
+		OS_MEMZERO(&ahp->ext_ani_stats, sizeof(ahp->ext_ani_stats));
+		astats = ar5212AniGetCurrentStats(ah);
+		if (astats == NULL) {
+			*result = NULL;
+			*resultsize = 0;
+		} else {
+			OS_MEMCPY(&ahp->ext_ani_stats, astats, sizeof(HAL_ANI_STATS));
+			*result = &ahp->ext_ani_stats;
+			*resultsize = sizeof(ahp->ext_ani_stats);
+		}
 		return AH_TRUE;
 	case HAL_DIAG_ANI_CMD:
 		if (argsize != 2*sizeof(uint32_t))
 			return AH_FALSE;
-		ar5212AniControl(ah, ((const uint32_t *)args)[0],
+		AH5212(ah)->ah_aniControl(ah, ((const uint32_t *)args)[0],
 			((const uint32_t *)args)[1]);
 		return AH_TRUE;
 	case HAL_DIAG_ANI_PARAMS:
@@ -1070,6 +1122,7 @@ ar5212GetDiagState(struct ath_hal *ah, int request,
 				return AH_FALSE;
 			return ar5212AniSetParams(ah, args, args);
 		}
+		break;
 	}
 	return AH_FALSE;
 }
@@ -1099,13 +1152,310 @@ HAL_BOOL
 ar5212WaitNFCalComplete(struct ath_hal *ah, int i)
 {
 	int j;
-
 	if (i <= 0)
-		i = 1;	/* it should run at least once */
-	for (j = 0; j < i; i++) {
+		i = 1;	  /* it should run at least once */
+	for (j = 0; j < i; j++) {
 		if (! ar5212IsNFCalInProgress(ah))
 			return AH_TRUE;
 		OS_DELAY(10);
 	}
 	return AH_FALSE;
+}
+
+void
+ar5212EnableDfs(struct ath_hal *ah, HAL_PHYERR_PARAM *pe)
+{
+	uint32_t val;
+	val = OS_REG_READ(ah, AR_PHY_RADAR_0);
+
+	if (pe->pe_firpwr != HAL_PHYERR_PARAM_NOVAL) {
+		val &= ~AR_PHY_RADAR_0_FIRPWR;
+		val |= SM(pe->pe_firpwr, AR_PHY_RADAR_0_FIRPWR);
+	}
+	if (pe->pe_rrssi != HAL_PHYERR_PARAM_NOVAL) {
+		val &= ~AR_PHY_RADAR_0_RRSSI;
+		val |= SM(pe->pe_rrssi, AR_PHY_RADAR_0_RRSSI);
+	}
+	if (pe->pe_height != HAL_PHYERR_PARAM_NOVAL) {
+		val &= ~AR_PHY_RADAR_0_HEIGHT;
+		val |= SM(pe->pe_height, AR_PHY_RADAR_0_HEIGHT);
+	}
+	if (pe->pe_prssi != HAL_PHYERR_PARAM_NOVAL) {
+		val &= ~AR_PHY_RADAR_0_PRSSI;
+		val |= SM(pe->pe_prssi, AR_PHY_RADAR_0_PRSSI);
+	}
+	if (pe->pe_inband != HAL_PHYERR_PARAM_NOVAL) {
+		val &= ~AR_PHY_RADAR_0_INBAND;
+		val |= SM(pe->pe_inband, AR_PHY_RADAR_0_INBAND);
+	}
+	if (pe->pe_enabled)
+		val |= AR_PHY_RADAR_0_ENA;
+	else
+		val &= ~ AR_PHY_RADAR_0_ENA;
+
+	if (IS_5413(ah)) {
+
+		if (pe->pe_blockradar == 1)
+			OS_REG_SET_BIT(ah, AR_PHY_RADAR_2,
+			    AR_PHY_RADAR_2_BLOCKOFDMWEAK);
+		else
+			OS_REG_CLR_BIT(ah, AR_PHY_RADAR_2,
+			    AR_PHY_RADAR_2_BLOCKOFDMWEAK);
+
+		if (pe->pe_en_relstep_check == 1)
+			OS_REG_SET_BIT(ah, AR_PHY_RADAR_2,
+			    AR_PHY_RADAR_2_ENRELSTEPCHK);
+		else
+			OS_REG_CLR_BIT(ah, AR_PHY_RADAR_2,
+			    AR_PHY_RADAR_2_ENRELSTEPCHK);
+
+		if (pe->pe_usefir128 == 1)
+			OS_REG_SET_BIT(ah, AR_PHY_RADAR_2,
+			    AR_PHY_RADAR_2_USEFIR128);
+		else
+			OS_REG_CLR_BIT(ah, AR_PHY_RADAR_2,
+			    AR_PHY_RADAR_2_USEFIR128);
+
+		if (pe->pe_enmaxrssi == 1)
+			OS_REG_SET_BIT(ah, AR_PHY_RADAR_2,
+			    AR_PHY_RADAR_2_ENMAXRSSI);
+		else
+			OS_REG_CLR_BIT(ah, AR_PHY_RADAR_2,
+			    AR_PHY_RADAR_2_ENMAXRSSI);
+
+		if (pe->pe_enrelpwr == 1)
+			OS_REG_SET_BIT(ah, AR_PHY_RADAR_2,
+			    AR_PHY_RADAR_2_ENRELPWRCHK);
+		else
+			OS_REG_CLR_BIT(ah, AR_PHY_RADAR_2,
+			    AR_PHY_RADAR_2_ENRELPWRCHK);
+
+		if (pe->pe_relpwr != HAL_PHYERR_PARAM_NOVAL)
+			OS_REG_RMW_FIELD(ah, AR_PHY_RADAR_2,
+			    AR_PHY_RADAR_2_RELPWR, pe->pe_relpwr);
+
+		if (pe->pe_relstep != HAL_PHYERR_PARAM_NOVAL)
+			OS_REG_RMW_FIELD(ah, AR_PHY_RADAR_2,
+			    AR_PHY_RADAR_2_RELSTEP, pe->pe_relstep);
+
+		if (pe->pe_maxlen != HAL_PHYERR_PARAM_NOVAL)
+			OS_REG_RMW_FIELD(ah, AR_PHY_RADAR_2,
+			    AR_PHY_RADAR_2_MAXLEN, pe->pe_maxlen);
+	}
+
+	OS_REG_WRITE(ah, AR_PHY_RADAR_0, val);
+}
+
+/*
+ * Parameters for the AR5212 PHY.
+ */
+#define	AR5212_DFS_FIRPWR	-35
+#define	AR5212_DFS_RRSSI	20
+#define	AR5212_DFS_HEIGHT	14
+#define	AR5212_DFS_PRSSI	6
+#define	AR5212_DFS_INBAND	4
+
+/*
+ * Default parameters for the AR5413 PHY.
+ */
+#define	AR5413_DFS_FIRPWR	-34
+#define	AR5413_DFS_RRSSI	20
+#define	AR5413_DFS_HEIGHT	10
+#define	AR5413_DFS_PRSSI	15
+#define	AR5413_DFS_INBAND	6
+#define	AR5413_DFS_RELPWR	8
+#define	AR5413_DFS_RELSTEP	31
+#define	AR5413_DFS_MAXLEN	255
+
+HAL_BOOL
+ar5212GetDfsDefaultThresh(struct ath_hal *ah, HAL_PHYERR_PARAM *pe)
+{
+
+	if (IS_5413(ah)) {
+		pe->pe_firpwr = AR5413_DFS_FIRPWR;
+		pe->pe_rrssi = AR5413_DFS_RRSSI;
+		pe->pe_height = AR5413_DFS_HEIGHT;
+		pe->pe_prssi = AR5413_DFS_PRSSI;
+		pe->pe_inband = AR5413_DFS_INBAND;
+		pe->pe_relpwr = AR5413_DFS_RELPWR;
+		pe->pe_relstep = AR5413_DFS_RELSTEP;
+		pe->pe_maxlen = AR5413_DFS_MAXLEN;
+		pe->pe_usefir128 = 0;
+		pe->pe_blockradar = 1;
+		pe->pe_enmaxrssi = 1;
+		pe->pe_enrelpwr = 1;
+		pe->pe_en_relstep_check = 0;
+	} else {
+		pe->pe_firpwr = AR5212_DFS_FIRPWR;
+		pe->pe_rrssi = AR5212_DFS_RRSSI;
+		pe->pe_height = AR5212_DFS_HEIGHT;
+		pe->pe_prssi = AR5212_DFS_PRSSI;
+		pe->pe_inband = AR5212_DFS_INBAND;
+		pe->pe_relpwr = 0;
+		pe->pe_relstep = 0;
+		pe->pe_maxlen = 0;
+		pe->pe_usefir128 = 0;
+		pe->pe_blockradar = 0;
+		pe->pe_enmaxrssi = 0;
+		pe->pe_enrelpwr = 0;
+		pe->pe_en_relstep_check = 0;
+	}
+
+	return (AH_TRUE);
+}
+
+void
+ar5212GetDfsThresh(struct ath_hal *ah, HAL_PHYERR_PARAM *pe)
+{
+	uint32_t val,temp;
+
+	val = OS_REG_READ(ah, AR_PHY_RADAR_0);
+
+	temp = MS(val,AR_PHY_RADAR_0_FIRPWR);
+	temp |= 0xFFFFFF80;
+	pe->pe_firpwr = temp;
+	pe->pe_rrssi = MS(val, AR_PHY_RADAR_0_RRSSI);
+	pe->pe_height =  MS(val, AR_PHY_RADAR_0_HEIGHT);
+	pe->pe_prssi = MS(val, AR_PHY_RADAR_0_PRSSI);
+	pe->pe_inband = MS(val, AR_PHY_RADAR_0_INBAND);
+	pe->pe_enabled = !! (val & AR_PHY_RADAR_0_ENA);
+
+	pe->pe_relpwr = 0;
+	pe->pe_relstep = 0;
+	pe->pe_maxlen = 0;
+	pe->pe_usefir128 = 0;
+	pe->pe_blockradar = 0;
+	pe->pe_enmaxrssi = 0;
+	pe->pe_enrelpwr = 0;
+	pe->pe_en_relstep_check = 0;
+	pe->pe_extchannel = AH_FALSE;
+
+	if (IS_5413(ah)) {
+		val = OS_REG_READ(ah, AR_PHY_RADAR_2);
+		pe->pe_relpwr = !! MS(val, AR_PHY_RADAR_2_RELPWR);
+		pe->pe_relstep = !! MS(val, AR_PHY_RADAR_2_RELSTEP);
+		pe->pe_maxlen = !! MS(val, AR_PHY_RADAR_2_MAXLEN);
+
+		pe->pe_usefir128 = !! (val & AR_PHY_RADAR_2_USEFIR128);
+		pe->pe_blockradar = !! (val & AR_PHY_RADAR_2_BLOCKOFDMWEAK);
+		pe->pe_enmaxrssi = !! (val & AR_PHY_RADAR_2_ENMAXRSSI);
+		pe->pe_enrelpwr = !! (val & AR_PHY_RADAR_2_ENRELPWRCHK);
+		pe->pe_en_relstep_check =
+		    !! (val & AR_PHY_RADAR_2_ENRELSTEPCHK);
+	}
+}
+
+/*
+ * Process the radar phy error and extract the pulse duration.
+ */
+HAL_BOOL
+ar5212ProcessRadarEvent(struct ath_hal *ah, struct ath_rx_status *rxs,
+    uint64_t fulltsf, const char *buf, HAL_DFS_EVENT *event)
+{
+	uint8_t dur;
+	uint8_t rssi;
+
+	/* Check whether the given phy error is a radar event */
+	if ((rxs->rs_phyerr != HAL_PHYERR_RADAR) &&
+	    (rxs->rs_phyerr != HAL_PHYERR_FALSE_RADAR_EXT))
+		return AH_FALSE;
+
+	/*
+	 * The first byte is the pulse width - if there's
+	 * no data, simply set the duration to 0
+	 */
+	if (rxs->rs_datalen >= 1)
+		/* The pulse width is byte 0 of the data */
+		dur = ((uint8_t) buf[0]) & 0xff;
+	else
+		dur = 0;
+
+	/* Pulse RSSI is the normal reported RSSI */
+	rssi = (uint8_t) rxs->rs_rssi;
+
+	/* 0 duration/rssi is not a valid radar event */
+	if (dur == 0 && rssi == 0)
+		return AH_FALSE;
+
+	HALDEBUG(ah, HAL_DEBUG_DFS, "%s: rssi=%d, dur=%d\n",
+	    __func__, rssi, dur);
+
+	/* Record the event */
+	event->re_full_ts = fulltsf;
+	event->re_ts = rxs->rs_tstamp;
+	event->re_rssi = rssi;
+	event->re_dur = dur;
+	event->re_flags = HAL_DFS_EVENT_PRICH;
+
+	return AH_TRUE;
+}
+
+/*
+ * Return whether 5GHz fast-clock (44MHz) is enabled.
+ * It's always disabled for AR5212 series NICs.
+ */
+HAL_BOOL
+ar5212IsFastClockEnabled(struct ath_hal *ah)
+{
+	return AH_FALSE;
+}
+
+/*
+ * Return what percentage of the extension channel is busy.
+ * This is always disabled for AR5212 series NICs.
+ */
+uint32_t
+ar5212Get11nExtBusy(struct ath_hal *ah)
+{
+	return 0;
+}
+
+/*
+ * Channel survey support.
+ */
+HAL_BOOL
+ar5212GetMibCycleCounts(struct ath_hal *ah, HAL_SURVEY_SAMPLE *hsample)
+{
+	struct ath_hal_5212 *ahp = AH5212(ah);
+	u_int32_t good = AH_TRUE;
+
+	/* XXX freeze/unfreeze mib counters */
+	uint32_t rc = OS_REG_READ(ah, AR_RCCNT);
+	uint32_t rf = OS_REG_READ(ah, AR_RFCNT);
+	uint32_t tf = OS_REG_READ(ah, AR_TFCNT);
+	uint32_t cc = OS_REG_READ(ah, AR_CCCNT); /* read cycles last */
+
+	if (ahp->ah_cycleCount == 0 || ahp->ah_cycleCount > cc) {
+		/*
+		 * Cycle counter wrap (or initial call); it's not possible
+		 * to accurately calculate a value because the registers
+		 * right shift rather than wrap--so punt and return 0.
+		 */
+		HALDEBUG(ah, HAL_DEBUG_ANY,
+		    "%s: cycle counter wrap. ExtBusy = 0\n", __func__);
+		good = AH_FALSE;
+	} else {
+		hsample->cycle_count = cc - ahp->ah_cycleCount;
+		hsample->chan_busy = rc - ahp->ah_ctlBusy;
+		hsample->ext_chan_busy = 0;
+		hsample->rx_busy = rf - ahp->ah_rxBusy;
+		hsample->tx_busy = tf - ahp->ah_txBusy;
+	}
+
+	/*
+	 * Keep a copy of the MIB results so the next sample has something
+	 * to work from.
+	 */
+	ahp->ah_cycleCount = cc;
+	ahp->ah_rxBusy = rf;
+	ahp->ah_ctlBusy = rc;
+	ahp->ah_txBusy = tf;
+
+	return (good);
+}
+
+void
+ar5212SetChainMasks(struct ath_hal *ah, uint32_t tx_chainmask,
+    uint32_t rx_chainmask)
+{
 }

@@ -1,5 +1,7 @@
-/*
- * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
+/*-
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2002-2009 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2004 Atheros Communications, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -14,7 +16,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5210_xmit.c,v 1.1.1.1 2008/12/11 04:46:29 alc Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
@@ -154,7 +156,7 @@ HAL_BOOL
 ar5210ResetTxQueue(struct ath_hal *ah, u_int q)
 {
 	struct ath_hal_5210 *ahp = AH5210(ah);
-	HAL_CHANNEL_INTERNAL *chan = AH_PRIVATE(ah)->ah_curchan;
+	const struct ieee80211_channel *chan = AH_PRIVATE(ah)->ah_curchan;
 	HAL_TX_QUEUE_INFO *qi;
 	uint32_t cwMin;
 
@@ -177,7 +179,7 @@ ar5210ResetTxQueue(struct ath_hal *ah, u_int q)
 		return AH_TRUE;
 
 	/* Set turbo mode / base mode parameters on or off */
-	if (IS_CHAN_TURBO(chan)) {
+	if (IEEE80211_IS_CHAN_TURBO(chan)) {
 		OS_REG_WRITE(ah, AR_SLOT_TIME, INIT_SLOT_TIME_TURBO);
 		OS_REG_WRITE(ah, AR_TIME_OUT, INIT_ACK_CTS_TIMEOUT_TURBO);
 		OS_REG_WRITE(ah, AR_USEC, INIT_TRANSMIT_LATENCY_TURBO);
@@ -518,7 +520,8 @@ ar5210SetupTxDesc(struct ath_hal *ah, struct ath_desc *ds,
 		ads->ds_ctl1 = 0;
 	if (flags & HAL_TXDESC_RTSENA) {
 		ads->ds_ctl0 |= AR_RTSCTSEnable;
-		ads->ds_ctl1 |= rtsctsDuration & AR_RTSDuration;
+		ads->ds_ctl1 |= (rtsctsDuration << AR_RTSDuration_S)
+		    & AR_RTSDuration;
 	}
 	return AH_TRUE;
 }
@@ -546,12 +549,16 @@ ar5210IntrReqTxDesc(struct ath_hal *ah, struct ath_desc *ds)
 
 HAL_BOOL
 ar5210FillTxDesc(struct ath_hal *ah, struct ath_desc *ds,
-	u_int segLen, HAL_BOOL firstSeg, HAL_BOOL lastSeg,
+	HAL_DMA_ADDR *bufAddrList, uint32_t *segLenList, u_int descId,
+	u_int qcuId, HAL_BOOL firstSeg, HAL_BOOL lastSeg,
 	const struct ath_desc *ds0)
 {
 	struct ar5210_desc *ads = AR5210DESC(ds);
+	uint32_t segLen = segLenList[0];
 
 	HALASSERT((segLen &~ AR_BufLen) == 0);
+
+	ds->ds_data = bufAddrList[0];
 
 	if (firstSeg) {
 		/*
@@ -620,4 +627,46 @@ void
 ar5210GetTxIntrQueue(struct ath_hal *ah, uint32_t *txqs)
 {
 	return;
+}
+
+/*
+ * Retrieve the rate table from the given TX completion descriptor
+ */
+HAL_BOOL
+ar5210GetTxCompletionRates(struct ath_hal *ah, const struct ath_desc *ds0, int *rates, int *tries)
+{
+	return AH_FALSE;
+}
+
+/*
+ * Set the TX descriptor link pointer
+ */
+void
+ar5210SetTxDescLink(struct ath_hal *ah, void *ds, uint32_t link)
+{
+	struct ar5210_desc *ads = AR5210DESC(ds);
+
+	ads->ds_link = link;
+}
+
+/*
+ * Get the TX descriptor link pointer
+ */
+void
+ar5210GetTxDescLink(struct ath_hal *ah, void *ds, uint32_t *link)
+{
+	struct ar5210_desc *ads = AR5210DESC(ds);
+
+	*link = ads->ds_link;
+}
+
+/*
+ * Get a pointer to the TX descriptor link pointer
+ */
+void
+ar5210GetTxDescLinkPtr(struct ath_hal *ah, void *ds, uint32_t **linkptr)
+{
+	struct ar5210_desc *ads = AR5210DESC(ds);
+
+	*linkptr = &ads->ds_link;
 }

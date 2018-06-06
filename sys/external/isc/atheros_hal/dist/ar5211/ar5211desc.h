@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2006 Atheros Communications, Inc.
  *
@@ -14,12 +16,10 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5211desc.h,v 1.1.1.1 2008/12/11 04:46:34 alc Exp $
+ * $FreeBSD$
  */
 #ifndef _DEV_ATH_AR5211DESC_H
 #define _DEV_ATH_AR5211DESC_H
-
-#include "ah_desc.h"
 
 /*
  * Defintions for the DMA descriptors used by the Atheros

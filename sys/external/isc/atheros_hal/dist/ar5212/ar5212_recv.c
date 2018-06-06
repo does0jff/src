@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2008 Atheros Communications, Inc.
  *
@@ -14,12 +16,13 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5212_recv.c,v 1.2 2011/03/07 11:25:43 cegger Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
 #include "ah.h"
 #include "ah_internal.h"
+#include "ah_desc.h"
 
 #include "ar5212/ar5212.h"
 #include "ar5212/ar5212reg.h"
@@ -29,8 +32,10 @@
  * Get the RXDP.
  */
 uint32_t
-ar5212GetRxDP(struct ath_hal *ath)
+ar5212GetRxDP(struct ath_hal *ath, HAL_RX_QUEUE qtype)
 {
+
+	HALASSERT(qtype == HAL_RX_QUEUE_HP);
 	return OS_REG_READ(ath, AR_RXDP);
 }
 
@@ -38,8 +43,10 @@ ar5212GetRxDP(struct ath_hal *ath)
  * Set the RxDP.
  */
 void
-ar5212SetRxDP(struct ath_hal *ah, uint32_t rxdp)
+ar5212SetRxDP(struct ath_hal *ah, uint32_t rxdp, HAL_RX_QUEUE qtype)
 {
+
+	HALASSERT(qtype == HAL_RX_QUEUE_HP);
 	OS_REG_WRITE(ah, AR_RXDP, rxdp);
 	HALASSERT(OS_REG_READ(ah, AR_RXDP) == rxdp);
 }
@@ -59,8 +66,10 @@ ar5212EnableReceive(struct ath_hal *ah)
 HAL_BOOL
 ar5212StopDmaReceive(struct ath_hal *ah)
 {
+	OS_MARK(ah, AH_MARK_RX_CTL, AH_MARK_RX_CTL_DMA_STOP);
 	OS_REG_WRITE(ah, AR_CR, AR_CR_RXD);	/* Set receive disable bit */
 	if (!ath_hal_wait(ah, AR_CR, AR_CR_RXE, 0)) {
+		OS_MARK(ah, AH_MARK_RX_CTL, AH_MARK_RX_CTL_DMA_STOP_ERR);
 #ifdef AH_DEBUG
 		ath_hal_printf(ah, "%s: dma failed to stop in 10ms\n"
 			"AR_CR=0x%08x\nAR_DIAG_SW=0x%08x\n",
@@ -82,6 +91,7 @@ ar5212StartPcuReceive(struct ath_hal *ah)
 {
 	struct ath_hal_private *ahp = AH_PRIVATE(ah);
 
+	OS_MARK(ah, AH_MARK_RX_CTL, AH_MARK_RX_CTL_PCU_START);
 	OS_REG_WRITE(ah, AR_DIAG_SW,
 		OS_REG_READ(ah, AR_DIAG_SW) &~ AR_DIAG_RX_DIS);
 	ar5212EnableMibCounters(ah);
@@ -95,6 +105,7 @@ ar5212StartPcuReceive(struct ath_hal *ah)
 void
 ar5212StopPcuReceive(struct ath_hal *ah)
 {
+	OS_MARK(ah, AH_MARK_RX_CTL, AH_MARK_RX_CTL_PCU_STOP);
 	OS_REG_WRITE(ah, AR_DIAG_SW,
 		OS_REG_READ(ah, AR_DIAG_SW) | AR_DIAG_RX_DIS);
 	ar5212DisableMibCounters(ah);
@@ -199,7 +210,7 @@ ar5212SetRxFilter(struct ath_hal *ah, uint32_t bits)
 			ahp->ah_miscMode |= AR_MISC_MODE_BSSID_MATCH_FORCE;
 		else
 			ahp->ah_miscMode &= ~AR_MISC_MODE_BSSID_MATCH_FORCE;
-		OS_REG_WRITE(ah, AR_MISC_MODE, ahp->ah_miscMode);
+		OS_REG_WRITE(ah, AR_MISC_MODE, OS_REG_READ(ah, AR_MISC_MODE) | ahp->ah_miscMode);
 	}
 }
 
@@ -268,6 +279,14 @@ ar5212ProcRxDesc(struct ath_hal *ah, struct ath_desc *ds,
 	rs->rs_antenna  = MS(ads->ds_rxstatus0, AR_RcvAntenna);
 	rs->rs_more = (ads->ds_rxstatus0 & AR_More) ? 1 : 0;
 
+	/*
+	 * The AR5413 (at least) sometimes sets both AR_CRCErr and
+	 * AR_PHYErr when reporting radar pulses.  In this instance
+	 * set HAL_RXERR_PHY as well as HAL_RXERR_CRC and
+	 * let the driver layer figure out what to do.
+	 *
+	 * See PR kern/169362.
+	 */
 	if ((ads->ds_rxstatus1 & AR_FrmRcvOK) == 0) {
 		/*
 		 * These four bits should not be set together.  The
@@ -278,9 +297,7 @@ ar5212ProcRxDesc(struct ath_hal *ah, struct ath_desc *ds,
 		 * Consequently we filter them out here so we don't
 		 * confuse and/or complicate drivers.
 		 */
-		if (ads->ds_rxstatus1 & AR_CRCErr)
-			rs->rs_status |= HAL_RXERR_CRC;
-		else if (ads->ds_rxstatus1 & AR_PHYErr) {
+		if (ads->ds_rxstatus1 & AR_PHYErr) {
 			u_int phyerr;
 
 			rs->rs_status |= HAL_RXERR_PHY;
@@ -289,7 +306,11 @@ ar5212ProcRxDesc(struct ath_hal *ah, struct ath_desc *ds,
 			if (!AH5212(ah)->ah_hasHwPhyCounters &&
 			    phyerr != HAL_PHYERR_RADAR)
 				ar5212AniPhyErrReport(ah, rs);
-		} else if (ads->ds_rxstatus1 & AR_DecryptCRCErr)
+		}
+
+		if (ads->ds_rxstatus1 & AR_CRCErr)
+			rs->rs_status |= HAL_RXERR_CRC;
+		else if (ads->ds_rxstatus1 & AR_DecryptCRCErr)
 			rs->rs_status |= HAL_RXERR_DECRYPT;
 		else if (ads->ds_rxstatus1 & AR_MichaelErr)
 			rs->rs_status |= HAL_RXERR_MIC;

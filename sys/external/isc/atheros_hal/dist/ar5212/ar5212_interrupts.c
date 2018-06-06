@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2008 Atheros Communications, Inc.
  *
@@ -14,7 +16,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5212_interrupts.c,v 1.2 2011/03/07 11:25:43 cegger Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
@@ -61,8 +63,7 @@ ar5212GetPendingInterrupts(struct ath_hal *ah, HAL_INT *masked)
 	isr = OS_REG_READ(ah, AR_ISR);
 	mask2 = 0;
 	if (isr & AR_ISR_BCNMISC) {
-		uint32_t isr2;
-		isr2 = OS_REG_READ(ah, AR_ISR_S2);
+		uint32_t isr2 = OS_REG_READ(ah, AR_ISR_S2);
 		if (isr2 & AR_ISR_S2_TIM)
 			mask2 |= HAL_INT_TIM;
 		if (isr2 & AR_ISR_S2_DTIM)
@@ -190,7 +191,7 @@ ar5212SetInterrupts(struct ath_hal *ah, HAL_INT ints)
 	HALDEBUG(ah, HAL_DEBUG_INTERRUPT, "%s: new IMR 0x%x\n", __func__, mask);
 	OS_REG_WRITE(ah, AR_IMR, mask);
 	OS_REG_WRITE(ah, AR_IMR_S2,
-	    (OS_REG_READ(ah, AR_IMR_S2) & ~AR_IMR_SR2_BCNMISC) | mask2);
+	    (OS_REG_READ(ah, AR_IMR_S2) &~ AR_IMR_SR2_BCNMISC) | mask2);
 	ahp->ah_maskReg = ints;
 
 	/* Re-enable interrupts if they were enabled before. */

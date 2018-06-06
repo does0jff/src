@@ -1,5 +1,7 @@
-/*
- * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
+/*-
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2002-2009 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2008 Atheros Communications, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -14,7 +16,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5212_ani.c,v 1.2 2011/03/07 11:25:43 cegger Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
@@ -99,43 +101,6 @@ disableAniMIBCounters(struct ath_hal *ah)
 }
 
 /*
- * This routine returns the index into the aniState array that
- * corresponds to the channel in *chan.  If no match is found and the
- * array is still not fully utilized, a new entry is created for the
- * channel.  We assume the attach function has already initialized the
- * ah_ani values and only the channel field needs to be set.
- */
-static int
-ar5212GetAniChannelIndex(struct ath_hal *ah, HAL_CHANNEL_INTERNAL *chan)
-{
-#define N(a)     (sizeof(a) / sizeof(a[0]))
-	struct ath_hal_5212 *ahp = AH5212(ah);
-	int i;
-
-	for (i = 0; i < N(ahp->ah_ani); i++) {
-		struct ar5212AniState *asp = &ahp->ah_ani[i];
-		if (asp->c.channel == chan->channel)
-			return i;
-		if (asp->c.channel == 0) {
-			asp->c.channel = chan->channel;
-			asp->c.channelFlags = chan->channelFlags;
-			asp->c.privFlags = chan->privFlags;
-			asp->isSetup = AH_FALSE;
-			if (IS_CHAN_2GHZ(chan))
-				asp->params = &ahp->ah_aniParams24;
-			else
-				asp->params = &ahp->ah_aniParams5;
-			return i;
-		}
-	}
-	/* XXX statistic */
-	HALDEBUG(ah, HAL_DEBUG_ANY,
-	    "No more channel states left. Using channel 0\n");
-	return 0;		/* XXX gotta return something valid */
-#undef N
-}
-
-/*
  * Return the current ANI state of the channel we're on
  */
 struct ar5212AniState *
@@ -147,7 +112,7 @@ ar5212AniGetCurrentState(struct ath_hal *ah)
 /*
  * Return the current statistics.
  */
-struct ar5212Stats *
+HAL_ANI_STATS *
 ar5212AniGetCurrentStats(struct ath_hal *ah)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
@@ -259,7 +224,14 @@ ar5212AniControl(struct ath_hal *ah, HAL_ANI_CMD cmd, int param)
 	typedef int TABLE[];
 	struct ath_hal_5212 *ahp = AH5212(ah);
 	struct ar5212AniState *aniState = ahp->ah_curani;
-	const struct ar5212AniParams *params = aniState->params;
+	const struct ar5212AniParams *params = AH_NULL;
+	
+	/*
+	 * This function may be called before there's a current
+	 * channel (eg to disable ANI.)
+	 */
+	if (aniState != AH_NULL)
+		params = aniState->params;
 
 	OS_MARK(ah, AH_MARK_ANI_CONTROL, cmd);
 
@@ -380,8 +352,8 @@ ar5212AniControl(struct ath_hal *ah, HAL_ANI_CMD cmd, int param)
 			ahp->ah_procPhyErr &= ~HAL_ANI_ENA;
 			/* Turn off HW counters if we have them */
 			ar5212AniDetach(ah);
-			ar5212SetRxFilter(ah,
-				ar5212GetRxFilter(ah) &~ HAL_RX_FILTER_PHYERR);
+			ah->ah_setRxFilter(ah,
+			    ah->ah_getRxFilter(ah) &~ HAL_RX_FILTER_PHYERR);
 		} else {			/* normal/auto mode */
 			/* don't mess with state if already enabled */
 			if (ahp->ah_procPhyErr & HAL_ANI_ENA)
@@ -395,8 +367,8 @@ ar5212AniControl(struct ath_hal *ah, HAL_ANI_CMD cmd, int param)
 					ahp->ah_curani->params:
 					&ahp->ah_aniParams24 /*XXX*/);
 			} else {
-				ar5212SetRxFilter(ah,
-					ar5212GetRxFilter(ah) | HAL_RX_FILTER_PHYERR);
+				ah->ah_setRxFilter(ah,
+				    ah->ah_getRxFilter(ah) | HAL_RX_FILTER_PHYERR);
 			}
 			ahp->ah_procPhyErr |= HAL_ANI_ENA;
 		}
@@ -419,7 +391,7 @@ static void
 ar5212AniOfdmErrTrigger(struct ath_hal *ah)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
-	HAL_CHANNEL_INTERNAL *chan = AH_PRIVATE(ah)->ah_curchan;
+	const struct ieee80211_channel *chan = AH_PRIVATE(ah)->ah_curchan;
 	struct ar5212AniState *aniState;
 	const struct ar5212AniParams *params;
 
@@ -502,8 +474,7 @@ ar5212AniOfdmErrTrigger(struct ath_hal *ah)
 			 * weak signal detection and zero firstepLevel to
 			 * maximize CCK sensitivity 
 			 */
-			/* XXX can optimize */
-			if (IS_CHAN_B(chan) || IS_CHAN_G(chan)) {
+			if (IEEE80211_IS_CHAN_CCK(chan)) {
 				if (!aniState->ofdmWeakSigDetectOff) {
 					HALDEBUG(ah, HAL_DEBUG_ANI,
 					    "%s: rssi %d OWSD off\n",
@@ -530,7 +501,7 @@ static void
 ar5212AniCckErrTrigger(struct ath_hal *ah)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
-	HAL_CHANNEL_INTERNAL *chan = AH_PRIVATE(ah)->ah_curchan;
+	const struct ieee80211_channel *chan = AH_PRIVATE(ah)->ah_curchan;
 	struct ar5212AniState *aniState;
 	const struct ar5212AniParams *params;
 
@@ -557,7 +528,7 @@ ar5212AniCckErrTrigger(struct ath_hal *ah)
 			 * Beacon signal in mid and high range,
 			 * raise firstep level.
 			 */
-			if (aniState->firstepLevel+1 < params->maxFirstepLevel) {
+			if (aniState->firstepLevel+1 <= params->maxFirstepLevel) {
 				HALDEBUG(ah, HAL_DEBUG_ANI,
 				    "%s: rssi %d raise ST %u\n", __func__, rssi,
 				    aniState->firstepLevel+1);
@@ -570,7 +541,8 @@ ar5212AniCckErrTrigger(struct ath_hal *ah)
 			 * CCK sensitivity in 11b/g mode.
 			 */
 			/* XXX can optimize */
-			if (IS_CHAN_B(chan) || IS_CHAN_G(chan)) {
+			if (IEEE80211_IS_CHAN_B(chan) ||
+			    IEEE80211_IS_CHAN_G(chan)) {
 				if (aniState->firstepLevel > 0) {
 					HALDEBUG(ah, HAL_DEBUG_ANI,
 					    "%s: rssi %d zero ST (was %u)\n",
@@ -611,39 +583,55 @@ ar5212AniRestart(struct ath_hal *ah, struct ar5212AniState *aniState)
 /*
  * Restore/reset the ANI parameters and reset the statistics.
  * This routine must be called for every channel change.
- *
- * NOTE: This is where ah_curani is set; other ani code assumes
- *       it is setup to reflect the current channel.
  */
 void
-ar5212AniReset(struct ath_hal *ah, HAL_CHANNEL_INTERNAL *chan,
+ar5212AniReset(struct ath_hal *ah, const struct ieee80211_channel *chan,
 	HAL_OPMODE opmode, int restore)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
-	struct ar5212AniState *aniState;
+	HAL_CHANNEL_INTERNAL *ichan = ath_hal_checkchannel(ah, chan);
+	/* XXX bounds check ic_devdata */
+	struct ar5212AniState *aniState = &ahp->ah_ani[chan->ic_devdata];
 	uint32_t rxfilter;
-	int index;
 
-	index = ar5212GetAniChannelIndex(ah, chan);
-	aniState = &ahp->ah_ani[index];
+	if ((ichan->privFlags & CHANNEL_ANI_INIT) == 0) {
+		OS_MEMZERO(aniState, sizeof(*aniState));
+		if (IEEE80211_IS_CHAN_2GHZ(chan))
+			aniState->params = &ahp->ah_aniParams24;
+		else
+			aniState->params = &ahp->ah_aniParams5;
+		ichan->privFlags |= CHANNEL_ANI_INIT;
+		HALASSERT((ichan->privFlags & CHANNEL_ANI_SETUP) == 0);
+	}
 	ahp->ah_curani = aniState;
 #if 0
-	ath_hal_printf(ah,"%s: chan %u/0x%x restore %d setup %d opmode %u\n",
-	    __func__, chan->channel, chan->channelFlags, restore,
-	    aniState->isSetup, opmode);
+	ath_hal_printf(ah,"%s: chan %u/0x%x restore %d opmode %u%s\n",
+	    __func__, chan->ic_freq, chan->ic_flags, restore, opmode,
+	    ichan->privFlags & CHANNEL_ANI_SETUP ? " setup" : "");
 #else
-	HALDEBUG(ah, HAL_DEBUG_ANI,
-	    "%s: chan %u/0x%x restore %d setup %d opmode %u\n",
-	    __func__, chan->channel, chan->channelFlags, restore,
-	    aniState->isSetup, opmode);
+	HALDEBUG(ah, HAL_DEBUG_ANI, "%s: chan %u/0x%x restore %d opmode %u%s\n",
+	    __func__, chan->ic_freq, chan->ic_flags, restore, opmode,
+	    ichan->privFlags & CHANNEL_ANI_SETUP ? " setup" : "");
 #endif
 	OS_MARK(ah, AH_MARK_ANI_RESET, opmode);
 
 	/*
 	 * Turn off PHY error frame delivery while we futz with settings.
 	 */
-	rxfilter = ar5212GetRxFilter(ah);
-	ar5212SetRxFilter(ah, rxfilter &~ HAL_RX_FILTER_PHYERR);
+	rxfilter = ah->ah_getRxFilter(ah);
+	ah->ah_setRxFilter(ah, rxfilter &~ HAL_RX_FILTER_PHYERR);
+
+	/*
+	 * If ANI is disabled at this point, don't set the default
+	 * ANI parameter settings - leave the HAL settings there.
+	 * This is (currently) needed for reliable radar detection.
+	 */
+	if (! ANI_ENA(ah)) {
+		HALDEBUG(ah, HAL_DEBUG_ANI, "%s: ANI disabled\n",
+		    __func__);
+		goto finish;
+	}
+
 	/*
 	 * Automatic processing is done only in station mode right now.
 	 */
@@ -657,7 +645,7 @@ ar5212AniReset(struct ath_hal *ah, HAL_CHANNEL_INTERNAL *chan,
 	 * XXX if ANI follows hardware, we don't care what mode we're
 	 * XXX in, we should keep the ani parameters
 	 */
-	if (restore && aniState->isSetup) {
+	if (restore && (ichan->privFlags & CHANNEL_ANI_SETUP)) {
 		ar5212AniControl(ah, HAL_ANI_NOISE_IMMUNITY_LEVEL,
 				 aniState->noiseImmunityLevel);
 		ar5212AniControl(ah, HAL_ANI_SPUR_IMMUNITY_LEVEL,
@@ -675,12 +663,17 @@ ar5212AniReset(struct ath_hal *ah, HAL_CHANNEL_INTERNAL *chan,
 			AH_TRUE);
 		ar5212AniControl(ah, HAL_ANI_CCK_WEAK_SIGNAL_THR, AH_FALSE);
 		ar5212AniControl(ah, HAL_ANI_FIRSTEP_LEVEL, 0);
-		aniState->isSetup = AH_TRUE;
+		ichan->privFlags |= CHANNEL_ANI_SETUP;
 	}
+	/*
+	 * In case the counters haven't yet been setup; set them up.
+	 */
+	enableAniMIBCounters(ah, ahp->ah_curani->params);
 	ar5212AniRestart(ah, aniState);
 
+finish:
 	/* restore RX filter mask */
-	ar5212SetRxFilter(ah, rxfilter);
+	ah->ah_setRxFilter(ah, rxfilter);
 }
 
 /*
@@ -874,16 +867,31 @@ static int32_t
 ar5212AniGetListenTime(struct ath_hal *ah)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
-	struct ar5212AniState *aniState;
-	uint32_t txFrameCount, rxFrameCount, cycleCount;
-	int32_t listenTime;
+	struct ar5212AniState *aniState = NULL;
+	int32_t listenTime = 0;
+	int good;
+	HAL_SURVEY_SAMPLE hs;
 
-	txFrameCount = OS_REG_READ(ah, AR_TFCNT);
-	rxFrameCount = OS_REG_READ(ah, AR_RFCNT);
-	cycleCount = OS_REG_READ(ah, AR_CCCNT);
+	/*
+	 * We shouldn't see ah_curchan be NULL, but just in case..
+	 */
+	if (AH_PRIVATE(ah)->ah_curchan == AH_NULL) {
+		ath_hal_printf(ah, "%s: ah_curchan = NULL?\n", __func__);
+		return (0);
+	}
 
-	aniState = ahp->ah_curani;
-	if (aniState->cycleCount == 0 || aniState->cycleCount > cycleCount) {
+	/*
+	 * Fetch the current statistics, squirrel away the current
+	 * sample, bump the sequence/sample counter.
+	 */
+	OS_MEMZERO(&hs, sizeof(hs));
+	good = ar5212GetMibCycleCounts(ah, &hs);
+	ath_hal_survey_add_sample(ah, &hs);
+
+	if (ANI_ENA(ah))
+		aniState = ahp->ah_curani;
+
+	if (good == AH_FALSE) {
 		/*
 		 * Cycle counter wrap (or initial call); it's not possible
 		 * to accurately calculate a value because the registers
@@ -891,15 +899,29 @@ ar5212AniGetListenTime(struct ath_hal *ah)
 		 */
 		listenTime = 0;
 		ahp->ah_stats.ast_ani_lzero++;
-	} else {
-		int32_t ccdelta = cycleCount - aniState->cycleCount;
-		int32_t rfdelta = rxFrameCount - aniState->rxFrameCount;
-		int32_t tfdelta = txFrameCount - aniState->txFrameCount;
+	} else if (ANI_ENA(ah)) {
+		/*
+		 * Only calculate and update the cycle count if we have
+		 * an ANI state.
+		 */
+		int32_t ccdelta =
+		    AH5212(ah)->ah_cycleCount - aniState->cycleCount;
+		int32_t rfdelta =
+		    AH5212(ah)->ah_rxBusy - aniState->rxFrameCount;
+		int32_t tfdelta =
+		    AH5212(ah)->ah_txBusy - aniState->txFrameCount;
 		listenTime = (ccdelta - rfdelta - tfdelta) / CLOCK_RATE;
 	}
-	aniState->cycleCount = cycleCount;
-	aniState->txFrameCount = txFrameCount;
-	aniState->rxFrameCount = rxFrameCount;
+
+	/*
+	 * Again, only update ANI state if we have it.
+	 */
+	if (ANI_ENA(ah)) {
+		aniState->cycleCount = AH5212(ah)->ah_cycleCount;
+		aniState->rxFrameCount = AH5212(ah)->ah_rxBusy;
+		aniState->txFrameCount = AH5212(ah)->ah_txBusy;
+	}
+
 	return listenTime;
 }
 
@@ -945,20 +967,28 @@ updateMIBStats(struct ath_hal *ah, struct ar5212AniState *aniState)
 	aniState->cckPhyErrCount = cckPhyErrCnt;
 }
 
+void
+ar5212RxMonitor(struct ath_hal *ah, const HAL_NODE_STATS *stats,
+		const struct ieee80211_channel *chan)
+{
+	struct ath_hal_5212 *ahp = AH5212(ah);
+	ahp->ah_stats.ast_nodestats.ns_avgbrssi = stats->ns_avgbrssi;
+}
+
 /*
  * Do periodic processing.  This routine is called from the
  * driver's rx interrupt handler after processing frames.
  */
 void
-ar5212AniPoll(struct ath_hal *ah, const HAL_NODE_STATS *stats,
-		HAL_CHANNEL *chan)
+ar5212AniPoll(struct ath_hal *ah, const struct ieee80211_channel *chan)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
 	struct ar5212AniState *aniState = ahp->ah_curani;
 	const struct ar5212AniParams *params;
 	int32_t listenTime;
 
-	ahp->ah_stats.ast_nodestats.ns_avgbrssi = stats->ns_avgbrssi;
+	/* Always update from the MIB, for statistics gathering */
+	listenTime = ar5212AniGetListenTime(ah);
 
 	/* XXX can aniState be null? */
 	if (aniState == AH_NULL)
@@ -966,7 +996,6 @@ ar5212AniPoll(struct ath_hal *ah, const HAL_NODE_STATS *stats,
 	if (!ANI_ENA(ah))
 		return;
 
-	listenTime = ar5212AniGetListenTime(ah);
 	if (listenTime < 0) {
 		ahp->ah_stats.ast_ani_lneg++;
 		/* restart ANI period if listenTime is invalid */

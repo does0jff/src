@@ -1,5 +1,7 @@
-/*
- * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
+/*-
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2002-2009 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2006 Atheros Communications, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -14,7 +16,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5211_misc.c,v 1.2 2011/03/07 11:25:42 cegger Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
@@ -554,6 +556,13 @@ ar5211SetCoverageClass(struct ath_hal *ah, uint8_t coverageclass, int now)
 {
 }
 
+HAL_STATUS
+ar5211SetQuiet(struct ath_hal *ah, uint32_t period, uint32_t duration,
+    uint32_t next_start, HAL_QUIET_FLAG flags)
+{
+	return HAL_OK;
+}
+
 /*
  * Control Adaptive Noise Immunity Parameters
  */
@@ -564,7 +573,13 @@ ar5211AniControl(struct ath_hal *ah, HAL_ANI_CMD cmd, int param)
 }
 
 void
-ar5211AniPoll(struct ath_hal *ah, const HAL_NODE_STATS *stats, HAL_CHANNEL *chan)
+ar5211AniPoll(struct ath_hal *ah, const struct ieee80211_channel *chan)
+{
+}
+
+void
+ar5211RxMonitor(struct ath_hal *ah, const HAL_NODE_STATS *stats,
+	const struct ieee80211_channel *chan)
 {
 }
 
@@ -603,8 +618,7 @@ ar5211GetAntennaSwitch(struct ath_hal *ah)
 HAL_BOOL
 ar5211SetAntennaSwitch(struct ath_hal *ah, HAL_ANT_SETTING settings)
 {
-	const HAL_CHANNEL *chan =
-		(const HAL_CHANNEL *) AH_PRIVATE(ah)->ah_curchan;
+	const struct ieee80211_channel *chan = AH_PRIVATE(ah)->ah_curchan;
 
 	if (chan == AH_NULL) {
 		AH5211(ah)->ah_diversityControl = settings;
@@ -682,4 +696,41 @@ ar5211GetDiagState(struct ath_hal *ah, int request,
 		return AH_TRUE;
 	}
 	return AH_FALSE;
+}
+
+/*
+ * Return what percentage of the extension channel is busy.
+ * This is always disabled for AR5211 series NICs.
+ */
+uint32_t
+ar5211Get11nExtBusy(struct ath_hal *ah)
+{
+	return (0);
+}
+
+
+/*
+ * There's no channel survey support for the AR5211.
+ */
+HAL_BOOL
+ar5211GetMibCycleCounts(struct ath_hal *ah, HAL_SURVEY_SAMPLE *hsample)
+{
+
+	return (AH_FALSE);
+}
+
+void
+ar5211SetChainMasks(struct ath_hal *ah, uint32_t txchainmask,
+    uint32_t rxchainmask)
+{
+}
+
+void
+ar5211EnableDfs(struct ath_hal *ah, HAL_PHYERR_PARAM *pe)
+{
+}
+
+void
+ar5211GetDfsThresh(struct ath_hal *ah, HAL_PHYERR_PARAM *pe)
+{
 }

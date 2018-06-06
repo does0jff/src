@@ -1,5 +1,7 @@
-/*
- * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
+/*-
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2002-2009 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2008 Atheros Communications, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -14,7 +16,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5416_ani.c,v 1.2 2011/03/07 11:25:44 cegger Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
@@ -102,43 +104,6 @@ disableAniMIBCounters(struct ath_hal *ah)
 	OS_REG_WRITE(ah, AR_PHY_ERR_MASK_2, 0);
 }
 
-/*
- * This routine returns the index into the aniState array that
- * corresponds to the channel in *chan.  If no match is found and the
- * array is still not fully utilized, a new entry is created for the
- * channel.  We assume the attach function has already initialized the
- * ah_ani values and only the channel field needs to be set.
- */
-static int
-ar5416GetAniChannelIndex(struct ath_hal *ah, HAL_CHANNEL_INTERNAL *chan)
-{
-#define N(a)     (sizeof(a) / sizeof(a[0]))
-	struct ath_hal_5212 *ahp = AH5212(ah);
-	int i;
-
-	for (i = 0; i < N(ahp->ah_ani); i++) {
-		struct ar5212AniState *asp = &ahp->ah_ani[i];
-		if (asp->c.channel == chan->channel)
-			return i;
-		if (asp->c.channel == 0) {
-			asp->c.channel = chan->channel;
-			asp->c.channelFlags = chan->channelFlags;
-			asp->c.privFlags = chan->privFlags;
-			asp->isSetup = AH_FALSE;
-			if (IS_CHAN_2GHZ(chan))
-				asp->params = &ahp->ah_aniParams24;
-			else
-				asp->params = &ahp->ah_aniParams5;
-			return i;
-		}
-	}
-	/* XXX statistic */
-	HALDEBUG(ah, HAL_DEBUG_ANY,
-	    "No more channel states left. Using channel 0\n");
-	return 0;		/* XXX gotta return something valid */
-#undef N
-}
-
 static void
 setPhyErrBase(struct ath_hal *ah, struct ar5212AniParams *params)
 {
@@ -193,6 +158,8 @@ ar5416AniAttach(struct ath_hal *ah, const struct ar5212AniParams *params24,
 
 /*
  * Cleanup any ANI state setup.
+ *
+ * This doesn't restore registers to their default settings!
  */
 void
 ar5416AniDetach(struct ath_hal *ah)
@@ -210,16 +177,60 @@ ar5416AniControl(struct ath_hal *ah, HAL_ANI_CMD cmd, int param)
 	typedef int TABLE[];
 	struct ath_hal_5212 *ahp = AH5212(ah);
 	struct ar5212AniState *aniState = ahp->ah_curani;
-	const struct ar5212AniParams *params = aniState->params;
+	const struct ar5212AniParams *params = AH_NULL;
+
+	/*
+	 * This function may be called before there's a current
+	 * channel (eg to disable ANI.)
+	 */
+	if (aniState != AH_NULL)
+		params = aniState->params;
 
 	OS_MARK(ah, AH_MARK_ANI_CONTROL, cmd);
+
+	/* These commands can't be disabled */
+	if (cmd == HAL_ANI_PRESENT)
+		return AH_TRUE;
+
+	if (cmd == HAL_ANI_MODE) {
+		if (param == 0) {
+			ahp->ah_procPhyErr &= ~HAL_ANI_ENA;
+			/* Turn off HW counters if we have them */
+			ar5416AniDetach(ah);
+		} else {			/* normal/auto mode */
+			/* don't mess with state if already enabled */
+			if (! (ahp->ah_procPhyErr & HAL_ANI_ENA)) {
+				/* Enable MIB Counters */
+				/*
+				 * XXX use 2.4ghz params if no channel is
+				 * available
+				 */
+				enableAniMIBCounters(ah,
+				    ahp->ah_curani != AH_NULL ?
+				      ahp->ah_curani->params:
+				      &ahp->ah_aniParams24);
+				ahp->ah_procPhyErr |= HAL_ANI_ENA;
+			}
+		}
+		return AH_TRUE;
+	}
+
+	/* Check whether the particular function is enabled */
+	if (((1 << cmd) & AH5416(ah)->ah_ani_function) == 0) {
+		HALDEBUG(ah, HAL_DEBUG_ANI, "%s: command %d disabled\n",
+		    __func__, cmd);
+		HALDEBUG(ah, HAL_DEBUG_ANI, "%s: cmd %d; mask %x\n", __func__, cmd, AH5416(ah)->ah_ani_function);
+		return AH_FALSE;
+	}
+
 
 	switch (cmd) {
 	case HAL_ANI_NOISE_IMMUNITY_LEVEL: {
 		u_int level = param;
 
-		if (level >= params->maxNoiseImmunityLevel) {
-			HALDEBUG(ah, HAL_DEBUG_ANY,
+		HALDEBUG(ah, HAL_DEBUG_ANI, "%s: HAL_ANI_NOISE_IMMUNITY_LEVEL: set level = %d\n", __func__, level);
+		if (level > params->maxNoiseImmunityLevel) {
+			HALDEBUG(ah, HAL_DEBUG_ANI,
 			    "%s: immunity level out of range (%u > %u)\n",
 			    __func__, level, params->maxNoiseImmunityLevel);
 			return AH_FALSE;
@@ -250,6 +261,7 @@ ar5416AniControl(struct ath_hal *ah, HAL_ANI_CMD cmd, int param)
 		static const TABLE m2CountThrLow = {  63,   48 };
 		u_int on = param ? 1 : 0;
 
+		HALDEBUG(ah, HAL_DEBUG_ANI, "%s: HAL_ANI_OFDM_WEAK_SIGNAL_DETECTION: %s\n", __func__, on ? "enabled" : "disabled");
 		OS_REG_RMW_FIELD(ah, AR_PHY_SFCORR_LOW,
 			AR_PHY_SFCORR_LOW_M1_THRESH_LOW, m1ThreshLow[on]);
 		OS_REG_RMW_FIELD(ah, AR_PHY_SFCORR_LOW,
@@ -290,6 +302,7 @@ ar5416AniControl(struct ath_hal *ah, HAL_ANI_CMD cmd, int param)
 		static const TABLE weakSigThrCck = { 8, 6 };
 		u_int high = param ? 1 : 0;
 
+		HALDEBUG(ah, HAL_DEBUG_ANI, "%s: HAL_ANI_CCK_WEAK_SIGNAL_THR: %s\n", __func__, high ? "high" : "low");
 		OS_REG_RMW_FIELD(ah, AR_PHY_CCK_DETECT,
 		    AR_PHY_CCK_DETECT_WEAK_SIG_THR_CCK, weakSigThrCck[high]);
 		if (high)
@@ -302,8 +315,9 @@ ar5416AniControl(struct ath_hal *ah, HAL_ANI_CMD cmd, int param)
 	case HAL_ANI_FIRSTEP_LEVEL: {
 		u_int level = param;
 
-		if (level >= params->maxFirstepLevel) {
-			HALDEBUG(ah, HAL_DEBUG_ANY,
+		HALDEBUG(ah, HAL_DEBUG_ANI, "%s: HAL_ANI_FIRSTEP_LEVEL: level = %d\n", __func__, level);
+		if (level > params->maxFirstepLevel) {
+			HALDEBUG(ah, HAL_DEBUG_ANI,
 			    "%s: firstep level out of range (%u > %u)\n",
 			    __func__, level, params->maxFirstepLevel);
 			return AH_FALSE;
@@ -320,14 +334,16 @@ ar5416AniControl(struct ath_hal *ah, HAL_ANI_CMD cmd, int param)
 	case HAL_ANI_SPUR_IMMUNITY_LEVEL: {
 		u_int level = param;
 
-		if (level >= params->maxSpurImmunityLevel) {
-			HALDEBUG(ah, HAL_DEBUG_ANY,
-			    "%s: spur level out of range (%u > %u)\n",
+		HALDEBUG(ah, HAL_DEBUG_ANI, "%s: HAL_ANI_SPUR_IMMUNITY_LEVEL: level = %d\n", __func__, level);
+		if (level > params->maxSpurImmunityLevel) {
+			HALDEBUG(ah, HAL_DEBUG_ANI,
+			    "%s: spur immunity level out of range (%u > %u)\n",
 			    __func__, level, params->maxSpurImmunityLevel);
 			return AH_FALSE;
 		}
 		OS_REG_RMW_FIELD(ah, AR_PHY_TIMING5,
 		    AR_PHY_TIMING5_CYCPWR_THR1, params->cycPwrThr1[level]);
+
 		if (level > aniState->spurImmunityLevel)
 			ahp->ah_stats.ast_ani_spurup++;
 		else if (level < aniState->spurImmunityLevel)
@@ -335,27 +351,6 @@ ar5416AniControl(struct ath_hal *ah, HAL_ANI_CMD cmd, int param)
 		aniState->spurImmunityLevel = level;
 		break;
 	}
-	case HAL_ANI_PRESENT:
-		break;
-	case HAL_ANI_MODE:
-		if (param == 0) {
-			ahp->ah_procPhyErr &= ~HAL_ANI_ENA;
-			/* Turn off HW counters if we have them */
-			ar5416AniDetach(ah);
-			ar5212SetRxFilter(ah,
-				ar5212GetRxFilter(ah) &~ HAL_RX_FILTER_PHYERR);
-		} else {			/* normal/auto mode */
-			/* don't mess with state if already enabled */
-			if (ahp->ah_procPhyErr & HAL_ANI_ENA)
-				break;
-			ar5212SetRxFilter(ah,
-				ar5212GetRxFilter(ah) &~ HAL_RX_FILTER_PHYERR);
-			/* Enable MIB Counters */
-			enableAniMIBCounters(ah, ahp->ah_curani != AH_NULL ?
-			    ahp->ah_curani->params: &ahp->ah_aniParams24 /*XXX*/);
-			ahp->ah_procPhyErr |= HAL_ANI_ENA;
-		}
-		break;
 #ifdef AH_PRIVATE_DIAG
 	case HAL_ANI_PHYERR_RESET:
 		ahp->ah_stats.ast_ani_ofdmerrs = 0;
@@ -363,7 +358,7 @@ ar5416AniControl(struct ath_hal *ah, HAL_ANI_CMD cmd, int param)
 		break;
 #endif /* AH_PRIVATE_DIAG */
 	default:
-		HALDEBUG(ah, HAL_DEBUG_ANY, "%s: invalid cmd %u\n",
+		HALDEBUG(ah, HAL_DEBUG_ANI, "%s: invalid cmd %u\n",
 		    __func__, cmd);
 		return AH_FALSE;
 	}
@@ -374,7 +369,7 @@ static void
 ar5416AniOfdmErrTrigger(struct ath_hal *ah)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
-	HAL_CHANNEL_INTERNAL *chan = AH_PRIVATE(ah)->ah_curchan;
+	const struct ieee80211_channel *chan = AH_PRIVATE(ah)->ah_curchan;
 	struct ar5212AniState *aniState;
 	const struct ar5212AniParams *params;
 
@@ -387,17 +382,29 @@ ar5416AniOfdmErrTrigger(struct ath_hal *ah)
 	params = aniState->params;
 	/* First, raise noise immunity level, up to max */
 	if (aniState->noiseImmunityLevel+1 < params->maxNoiseImmunityLevel) {
-		ar5416AniControl(ah, HAL_ANI_NOISE_IMMUNITY_LEVEL, 
-				 aniState->noiseImmunityLevel + 1);
-		return;
+		if (ar5416AniControl(ah, HAL_ANI_NOISE_IMMUNITY_LEVEL, 
+				 aniState->noiseImmunityLevel + 1))
+			return;
 	}
 	/* then, raise spur immunity level, up to max */
 	if (aniState->spurImmunityLevel+1 < params->maxSpurImmunityLevel) {
-		ar5416AniControl(ah, HAL_ANI_SPUR_IMMUNITY_LEVEL,
-				 aniState->spurImmunityLevel + 1);
-		return;
+		if (ar5416AniControl(ah, HAL_ANI_SPUR_IMMUNITY_LEVEL,
+				 aniState->spurImmunityLevel + 1))
+			return;
 	}
 
+	/*
+	 * In the case of AP mode operation, we cannot bucketize beacons
+	 * according to RSSI.  Instead, raise Firstep level, up to max, and
+	 * simply return.
+	 */
+	if (AH_PRIVATE(ah)->ah_opmode == HAL_M_HOSTAP) {
+		if (aniState->firstepLevel < params->maxFirstepLevel) {
+			if (ar5416AniControl(ah, HAL_ANI_FIRSTEP_LEVEL,
+			    aniState->firstepLevel + 1))
+				return;
+		}
+	}
 	if (ANI_ENA_RSSI(ah)) {
 		int32_t rssi = BEACON_RSSI(ahp);
 		if (rssi > params->rssiThrHigh) {
@@ -417,10 +424,10 @@ ar5416AniOfdmErrTrigger(struct ath_hal *ah)
 			 * If weak sig detect is already off, as last resort,
 			 * raise firstep level 
 			 */
-			if (aniState->firstepLevel+1 < params->maxFirstepLevel) {
-				ar5416AniControl(ah, HAL_ANI_FIRSTEP_LEVEL,
-						 aniState->firstepLevel + 1);
-				return;
+			if (aniState->firstepLevel < params->maxFirstepLevel) {
+				if (ar5416AniControl(ah, HAL_ANI_FIRSTEP_LEVEL,
+						 aniState->firstepLevel + 1))
+					return;
 			}
 		} else if (rssi > params->rssiThrLow) {
 			/* 
@@ -431,26 +438,25 @@ ar5416AniOfdmErrTrigger(struct ath_hal *ah)
 				ar5416AniControl(ah,
 				    HAL_ANI_OFDM_WEAK_SIGNAL_DETECTION,
 				    AH_TRUE);
-			if (aniState->firstepLevel+1 < params->maxFirstepLevel)
-				ar5416AniControl(ah, HAL_ANI_FIRSTEP_LEVEL,
-				     aniState->firstepLevel + 1);
-			return;
+			if (aniState->firstepLevel < params->maxFirstepLevel)
+				if (ar5416AniControl(ah, HAL_ANI_FIRSTEP_LEVEL,
+				     aniState->firstepLevel + 1))
+				return;
 		} else {
 			/* 
 			 * Beacon rssi is low, if in 11b/g mode, turn off ofdm
 			 * weak signal detection and zero firstepLevel to
 			 * maximize CCK sensitivity 
 			 */
-			/* XXX can optimize */
-			if (IS_CHAN_B(chan) || IS_CHAN_G(chan)) {
+			if (IEEE80211_IS_CHAN_CCK(chan)) {
 				if (!aniState->ofdmWeakSigDetectOff)
 					ar5416AniControl(ah,
 					    HAL_ANI_OFDM_WEAK_SIGNAL_DETECTION,
 					    AH_FALSE);
 				if (aniState->firstepLevel > 0)
-					ar5416AniControl(ah,
-					     HAL_ANI_FIRSTEP_LEVEL, 0);
-				return;
+					if (ar5416AniControl(ah,
+					     HAL_ANI_FIRSTEP_LEVEL, 0))
+						return;
 			}
 		}
 	}
@@ -460,7 +466,7 @@ static void
 ar5416AniCckErrTrigger(struct ath_hal *ah)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
-	HAL_CHANNEL_INTERNAL *chan = AH_PRIVATE(ah)->ah_curchan;
+	const struct ieee80211_channel *chan = AH_PRIVATE(ah)->ah_curchan;
 	struct ar5212AniState *aniState;
 	const struct ar5212AniParams *params;
 
@@ -472,7 +478,8 @@ ar5416AniCckErrTrigger(struct ath_hal *ah)
 	/* first, raise noise immunity level, up to max */
 	aniState = ahp->ah_curani;
 	params = aniState->params;
-	if (aniState->noiseImmunityLevel+1 < params->maxNoiseImmunityLevel) {
+	if ((AH5416(ah)->ah_ani_function & (1 << HAL_ANI_NOISE_IMMUNITY_LEVEL) &&
+	    aniState->noiseImmunityLevel+1 < params->maxNoiseImmunityLevel)) {
 		ar5416AniControl(ah, HAL_ANI_NOISE_IMMUNITY_LEVEL,
 				 aniState->noiseImmunityLevel + 1);
 		return;
@@ -485,7 +492,7 @@ ar5416AniCckErrTrigger(struct ath_hal *ah)
 			 * Beacon signal in mid and high range,
 			 * raise firstep level.
 			 */
-			if (aniState->firstepLevel+1 < params->maxFirstepLevel)
+			if (aniState->firstepLevel < params->maxFirstepLevel)
 				ar5416AniControl(ah, HAL_ANI_FIRSTEP_LEVEL,
 						 aniState->firstepLevel + 1);
 		} else {
@@ -493,8 +500,7 @@ ar5416AniCckErrTrigger(struct ath_hal *ah)
 			 * Beacon rssi is low, zero firstep level to maximize
 			 * CCK sensitivity in 11b/g mode.
 			 */
-			/* XXX can optimize */
-			if (IS_CHAN_B(chan) || IS_CHAN_G(chan)) {
+			if (IEEE80211_IS_CHAN_CCK(chan)) {
 				if (aniState->firstepLevel > 0)
 					ar5416AniControl(ah,
 					    HAL_ANI_FIRSTEP_LEVEL, 0);
@@ -520,7 +526,7 @@ ar5416AniRestart(struct ath_hal *ah, struct ar5212AniState *aniState)
 	OS_REG_WRITE(ah, AR_PHY_ERR_1, params->ofdmPhyErrBase);
 	OS_REG_WRITE(ah, AR_PHY_ERR_2, params->cckPhyErrBase);
 	OS_REG_WRITE(ah, AR_PHY_ERR_MASK_1, AR_PHY_ERR_OFDM_TIMING);
-	OS_REG_WRITE(ah, AR_PHY_ERR_MASK_1, AR_PHY_ERR_CCK_TIMING);
+	OS_REG_WRITE(ah, AR_PHY_ERR_MASK_2, AR_PHY_ERR_CCK_TIMING);
 
 	/* Clear the mib counters and save them in the stats */
 	ar5212UpdateMibCounters(ah, &ahp->ah_mibStats);
@@ -536,34 +542,64 @@ ar5416AniRestart(struct ath_hal *ah, struct ar5212AniState *aniState)
  *       it is setup to reflect the current channel.
  */
 void
-ar5416AniReset(struct ath_hal *ah, HAL_CHANNEL_INTERNAL *chan,
+ar5416AniReset(struct ath_hal *ah, const struct ieee80211_channel *chan,
 	HAL_OPMODE opmode, int restore)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
-	struct ar5212AniState *aniState;
+	HAL_CHANNEL_INTERNAL *ichan = ath_hal_checkchannel(ah, chan);
+	/* XXX bounds check ic_devdata */
+	struct ar5212AniState *aniState = &ahp->ah_ani[chan->ic_devdata];
 	uint32_t rxfilter;
-	int index;
 
-	index = ar5416GetAniChannelIndex(ah, chan);
-	aniState = &ahp->ah_ani[index];
+	if ((ichan->privFlags & CHANNEL_ANI_INIT) == 0) {
+		OS_MEMZERO(aniState, sizeof(*aniState));
+		if (IEEE80211_IS_CHAN_2GHZ(chan))
+			aniState->params = &ahp->ah_aniParams24;
+		else
+			aniState->params = &ahp->ah_aniParams5;
+		ichan->privFlags |= CHANNEL_ANI_INIT;
+		HALASSERT((ichan->privFlags & CHANNEL_ANI_SETUP) == 0);
+	}
 	ahp->ah_curani = aniState;
 #if 0
-	ath_hal_printf(ah,"%s: chan %u/0x%x restore %d setup %d opmode %u\n",
-	    __func__, chan->channel, chan->channelFlags, restore,
-	    aniState->isSetup, opmode);
+	ath_hal_printf(ah,"%s: chan %u/0x%x restore %d opmode %u%s\n",
+	    __func__, chan->ic_freq, chan->ic_flags, restore, opmode,
+	    ichan->privFlags & CHANNEL_ANI_SETUP ? " setup" : "");
 #else
-	HALDEBUG(ah, HAL_DEBUG_ANI,
-	    "%s: chan %u/0x%x restore %d setup %d opmode %u\n",
-	    __func__, chan->channel, chan->channelFlags, restore,
-	    aniState->isSetup, opmode);
+	HALDEBUG(ah, HAL_DEBUG_ANI, "%s: chan %u/0x%x restore %d opmode %u%s\n",
+	    __func__, chan->ic_freq, chan->ic_flags, restore, opmode,
+	    ichan->privFlags & CHANNEL_ANI_SETUP ? " setup" : "");
 #endif
 	OS_MARK(ah, AH_MARK_ANI_RESET, opmode);
 
 	/*
 	 * Turn off PHY error frame delivery while we futz with settings.
 	 */
-	rxfilter = ar5212GetRxFilter(ah);
-	ar5212SetRxFilter(ah, rxfilter &~ HAL_RX_FILTER_PHYERR);
+	rxfilter = ah->ah_getRxFilter(ah);
+	ah->ah_setRxFilter(ah, rxfilter &~ HAL_RX_FILTER_PHYERR);
+
+	/*
+	 * If ANI is disabled at this point, don't set the default
+	 * ANI parameter settings - leave the HAL settings there.
+	 * This is (currently) needed for reliable radar detection.
+	 */
+	if (! ANI_ENA(ah)) {
+		HALDEBUG(ah, HAL_DEBUG_ANI, "%s: ANI disabled\n",
+		    __func__);
+		goto finish;
+	}
+
+	/*
+	 * Use a restrictive set of ANI parameters for hostap mode.
+	 */
+	if (opmode == HAL_M_HOSTAP) {
+		if (IEEE80211_IS_CHAN_2GHZ(chan))
+			AH5416(ah)->ah_ani_function =
+			    HAL_ANI_SPUR_IMMUNITY_LEVEL | HAL_ANI_FIRSTEP_LEVEL;
+		else
+			AH5416(ah)->ah_ani_function = 0;
+	}
+
 	/*
 	 * Automatic processing is done only in station mode right now.
 	 */
@@ -577,7 +613,7 @@ ar5416AniReset(struct ath_hal *ah, HAL_CHANNEL_INTERNAL *chan,
 	 * XXX if ANI follows hardware, we don't care what mode we're
 	 * XXX in, we should keep the ani parameters
 	 */
-	if (restore && aniState->isSetup) {
+	if (restore && (ichan->privFlags & CHANNEL_ANI_SETUP)) {
 		ar5416AniControl(ah, HAL_ANI_NOISE_IMMUNITY_LEVEL,
 				 aniState->noiseImmunityLevel);
 		ar5416AniControl(ah, HAL_ANI_SPUR_IMMUNITY_LEVEL,
@@ -592,15 +628,21 @@ ar5416AniReset(struct ath_hal *ah, HAL_CHANNEL_INTERNAL *chan,
 		ar5416AniControl(ah, HAL_ANI_NOISE_IMMUNITY_LEVEL, 0);
 		ar5416AniControl(ah, HAL_ANI_SPUR_IMMUNITY_LEVEL, 0);
 		ar5416AniControl(ah, HAL_ANI_OFDM_WEAK_SIGNAL_DETECTION,
-			AH_TRUE);
+			AH_FALSE);
 		ar5416AniControl(ah, HAL_ANI_CCK_WEAK_SIGNAL_THR, AH_FALSE);
 		ar5416AniControl(ah, HAL_ANI_FIRSTEP_LEVEL, 0);
-		aniState->isSetup = AH_TRUE;
+		ichan->privFlags |= CHANNEL_ANI_SETUP;
 	}
+
+	/*
+	 * In case the counters haven't yet been setup; set them up.
+	 */
+	enableAniMIBCounters(ah, aniState->params);
 	ar5416AniRestart(ah, aniState);
 
+finish:
 	/* restore RX filter mask */
-	ar5212SetRxFilter(ah, rxfilter);
+	ah->ah_setRxFilter(ah, rxfilter);
 }
 
 /*
@@ -690,6 +732,19 @@ ar5416AniLowerImmunity(struct ath_hal *ah)
 
 	aniState = ahp->ah_curani;
 	params = aniState->params;
+
+	/*
+	 * In the case of AP mode operation, we cannot bucketize beacons
+	 * according to RSSI.  Instead, lower Firstep level, down to min, and
+	 * simply return.
+	 */
+	if (AH_PRIVATE(ah)->ah_opmode == HAL_M_HOSTAP) {
+		if (aniState->firstepLevel > 0) {
+			if (ar5416AniControl(ah, HAL_ANI_FIRSTEP_LEVEL,
+			    aniState->firstepLevel - 1))
+				return;
+		}
+	}
 	if (ANI_ENA_RSSI(ah)) {
 		int32_t rssi = BEACON_RSSI(ahp);
 		if (rssi > params->rssiThrHigh) {
@@ -704,41 +759,41 @@ ar5416AniLowerImmunity(struct ath_hal *ah)
 			 * detection or lower firstep level.
 			 */
 			if (aniState->ofdmWeakSigDetectOff) {
-				ar5416AniControl(ah,
+				if (ar5416AniControl(ah,
 				    HAL_ANI_OFDM_WEAK_SIGNAL_DETECTION,
-				    AH_TRUE);
-				return;
+				    AH_TRUE))
+					return;
 			}
 			if (aniState->firstepLevel > 0) {
-				ar5416AniControl(ah, HAL_ANI_FIRSTEP_LEVEL,
-						 aniState->firstepLevel - 1);
-				return;
+				if (ar5416AniControl(ah, HAL_ANI_FIRSTEP_LEVEL,
+						 aniState->firstepLevel - 1))
+					return;
 			}
 		} else {
 			/*
 			 * Beacon rssi is low, reduce firstep level.
 			 */
 			if (aniState->firstepLevel > 0) {
-				ar5416AniControl(ah, HAL_ANI_FIRSTEP_LEVEL,
-						 aniState->firstepLevel - 1);
-				return;
+				if (ar5416AniControl(ah, HAL_ANI_FIRSTEP_LEVEL,
+						 aniState->firstepLevel - 1))
+					return;
 			}
 		}
 	}
 	/* then lower spur immunity level, down to zero */
 	if (aniState->spurImmunityLevel > 0) {
-		ar5416AniControl(ah, HAL_ANI_SPUR_IMMUNITY_LEVEL,
-				 aniState->spurImmunityLevel - 1);
-		return;
+		if (ar5416AniControl(ah, HAL_ANI_SPUR_IMMUNITY_LEVEL,
+				 aniState->spurImmunityLevel - 1))
+			return;
 	}
 	/* 
 	 * if all else fails, lower noise immunity level down to a min value
 	 * zero for now
 	 */
 	if (aniState->noiseImmunityLevel > 0) {
-		ar5416AniControl(ah, HAL_ANI_NOISE_IMMUNITY_LEVEL,
-				 aniState->noiseImmunityLevel - 1);
-		return;
+		if (ar5416AniControl(ah, HAL_ANI_NOISE_IMMUNITY_LEVEL,
+				 aniState->noiseImmunityLevel - 1))
+			return;
 	}
 }
 
@@ -751,21 +806,41 @@ ar5416AniLowerImmunity(struct ath_hal *ah)
  * deducting the cycles spent tx'ing and rx'ing from the total
  * cycle count since our last call.  A return value <0 indicates
  * an invalid/inconsistent time.
+ *
+ * This may be called with ANI disabled; in which case simply keep
+ * the statistics and don't write to the aniState pointer.
+ *
+ * XXX TODO: Make this cleaner!
  */
 static int32_t
 ar5416AniGetListenTime(struct ath_hal *ah)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
-	struct ar5212AniState *aniState;
-	uint32_t txFrameCount, rxFrameCount, cycleCount;
-	int32_t listenTime;
+	struct ar5212AniState *aniState = NULL;
+	int32_t listenTime = 0;
+	int good;
+	HAL_SURVEY_SAMPLE hs;
 
-	txFrameCount = OS_REG_READ(ah, AR_TFCNT);
-	rxFrameCount = OS_REG_READ(ah, AR_RFCNT);
-	cycleCount = OS_REG_READ(ah, AR_CCCNT);
+	/*
+	 * We shouldn't see ah_curchan be NULL, but just in case..
+	 */
+	if (AH_PRIVATE(ah)->ah_curchan == AH_NULL) {
+		ath_hal_printf(ah, "%s: ah_curchan = NULL?\n", __func__);
+		return (0);
+	}
 
-	aniState = ahp->ah_curani;
-	if (aniState->cycleCount == 0 || aniState->cycleCount > cycleCount) {
+	/*
+	 * Fetch the current statistics, squirrel away the current
+	 * sample.
+	 */
+	OS_MEMZERO(&hs, sizeof(hs));
+	good = ar5416GetMibCycleCounts(ah, &hs);
+	ath_hal_survey_add_sample(ah, &hs);
+
+	if (ANI_ENA(ah))
+		aniState = ahp->ah_curani;
+
+	if (good == AH_FALSE) {
 		/*
 		 * Cycle counter wrap (or initial call); it's not possible
 		 * to accurately calculate a value because the registers
@@ -773,15 +848,29 @@ ar5416AniGetListenTime(struct ath_hal *ah)
 		 */
 		listenTime = 0;
 		ahp->ah_stats.ast_ani_lzero++;
-	} else {
-		int32_t ccdelta = cycleCount - aniState->cycleCount;
-		int32_t rfdelta = rxFrameCount - aniState->rxFrameCount;
-		int32_t tfdelta = txFrameCount - aniState->txFrameCount;
+	} else if (ANI_ENA(ah)) {
+		/*
+		 * Only calculate and update the cycle count if we have
+		 * an ANI state.
+		 */
+		int32_t ccdelta =
+		    AH5416(ah)->ah_cycleCount - aniState->cycleCount;
+		int32_t rfdelta =
+		    AH5416(ah)->ah_rxBusy - aniState->rxFrameCount;
+		int32_t tfdelta =
+		    AH5416(ah)->ah_txBusy - aniState->txFrameCount;
 		listenTime = (ccdelta - rfdelta - tfdelta) / CLOCK_RATE;
 	}
-	aniState->cycleCount = cycleCount;
-	aniState->txFrameCount = txFrameCount;
-	aniState->rxFrameCount = rxFrameCount;
+
+	/*
+	 * Again, only update ANI state if we have it.
+	 */
+	if (ANI_ENA(ah)) {
+		aniState->cycleCount = AH5416(ah)->ah_cycleCount;
+		aniState->rxFrameCount = AH5416(ah)->ah_rxBusy;
+		aniState->txFrameCount = AH5416(ah)->ah_txBusy;
+	}
+
 	return listenTime;
 }
 
@@ -825,31 +914,41 @@ updateMIBStats(struct ath_hal *ah, struct ar5212AniState *aniState)
 	aniState->cckPhyErrCount = cckPhyErrCnt;
 }
 
+void
+ar5416RxMonitor(struct ath_hal *ah, const HAL_NODE_STATS *stats,
+		const struct ieee80211_channel *chan)
+{
+	struct ath_hal_5212 *ahp = AH5212(ah);
+	ahp->ah_stats.ast_nodestats.ns_avgbrssi = stats->ns_avgbrssi;
+}
+
 /*
  * Do periodic processing.  This routine is called from the
  * driver's rx interrupt handler after processing frames.
  */
 void
-ar5416AniPoll(struct ath_hal *ah, const HAL_NODE_STATS *stats,
-		HAL_CHANNEL *chan)
+ar5416AniPoll(struct ath_hal *ah, const struct ieee80211_channel *chan)
 {
 	struct ath_hal_5212 *ahp = AH5212(ah);
 	struct ar5212AniState *aniState = ahp->ah_curani;
 	const struct ar5212AniParams *params;
 	int32_t listenTime;
 
-	ahp->ah_stats.ast_nodestats.ns_avgbrssi = stats->ns_avgbrssi;
+	/* Always update from the MIB, for statistics gathering */
+	listenTime = ar5416AniGetListenTime(ah);
 
 	/* XXX can aniState be null? */
 	if (aniState == AH_NULL)
 		return;
+
 	if (!ANI_ENA(ah))
 		return;
 
-	listenTime = ar5416AniGetListenTime(ah);
 	if (listenTime < 0) {
 		ahp->ah_stats.ast_ani_lneg++;
 		/* restart ANI period if listenTime is invalid */
+		HALDEBUG(ah, HAL_DEBUG_ANI, "%s: invalid listenTime\n",
+		    __func__);
 		ar5416AniRestart(ah, aniState);
 	}
 	/* XXX beware of overflow? */
@@ -869,16 +968,24 @@ ar5416AniPoll(struct ath_hal *ah, const HAL_NODE_STATS *stats,
 		    aniState->cckPhyErrCount <= aniState->listenTime *
 		    params->cckTrigLow/1000)
 			ar5416AniLowerImmunity(ah);
+		HALDEBUG(ah, HAL_DEBUG_ANI, "%s: lower immunity\n",
+		    __func__);
 		ar5416AniRestart(ah, aniState);
 	} else if (aniState->listenTime > params->period) {
 		updateMIBStats(ah, aniState);
 		/* check to see if need to raise immunity */
 		if (aniState->ofdmPhyErrCount > aniState->listenTime *
 		    params->ofdmTrigHigh / 1000) {
+                        HALDEBUG(ah, HAL_DEBUG_ANI,
+                            "%s: OFDM err %u listenTime %u\n", __func__,
+                            aniState->ofdmPhyErrCount, aniState->listenTime);
 			ar5416AniOfdmErrTrigger(ah);
 			ar5416AniRestart(ah, aniState);
 		} else if (aniState->cckPhyErrCount > aniState->listenTime *
 			   params->cckTrigHigh / 1000) {
+                        HALDEBUG(ah, HAL_DEBUG_ANI,
+                            "%s: CCK err %u listenTime %u\n", __func__,
+                            aniState->cckPhyErrCount, aniState->listenTime);
 			ar5416AniCckErrTrigger(ah);
 			ar5416AniRestart(ah, aniState);
 		}

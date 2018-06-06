@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
  * Copyright (c) 2002-2008 Atheros Communications, Inc.
  *
@@ -14,7 +16,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: ar5416_eeprom.c,v 1.2 2011/05/30 13:57:21 joerg Exp $
+ * $FreeBSD$
  */
 #include "opt_ah.h"
 
@@ -34,7 +36,7 @@
 HAL_BOOL
 ar5416EepromRead(struct ath_hal *ah, u_int off, uint16_t *data)
 {
-        (void)OS_REG_READ(ah,  AR5416_EEPROM_OFFSET + (off << AR5416_EEPROM_S));
+        OS_REG_READ(ah,  AR5416_EEPROM_OFFSET + (off << AR5416_EEPROM_S));
        	if (!ath_hal_wait(ah, AR_EEPROM_STATUS_DATA,
 	    AR_EEPROM_STATUS_DATA_BUSY | AR_EEPROM_STATUS_DATA_PROT_ACCESS, 0))
 		return AH_FALSE;

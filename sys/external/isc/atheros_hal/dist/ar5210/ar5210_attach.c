@@ -33,7 +33,7 @@
 static	HAL_BOOL ar5210GetChannelEdges(struct ath_hal *,
 		uint16_t flags, uint16_t *low, uint16_t *high);
 static	HAL_BOOL ar5210GetChipPowerLimits(struct ath_hal *ah,
-		struct ieee80211_channel *chan);
+		HAL_CHANNEL *chans, uint32_t nchans);
 
 static void ar5210ConfigPCIE(struct ath_hal *ah, HAL_BOOL restore,
 		HAL_BOOL power_on);
@@ -41,7 +41,7 @@ static void ar5210DisablePCIE(struct ath_hal *ah);
 
 static const struct ath_hal_private ar5210hal = {{
 	.ah_magic			= AR5210_MAGIC,
-
+  //.ah_abi				= HAL_ABI_VERSION,
 	.ah_getRateTable		= ar5210GetRateTable,
 	.ah_detach			= ar5210Detach,
 
@@ -186,7 +186,7 @@ static HAL_BOOL ar5210FillCapabilityInfo(struct ath_hal *ah);
  */
 static struct ath_hal *
 ar5210Attach(uint16_t devid, HAL_SOFTC sc, HAL_BUS_TAG st, HAL_BUS_HANDLE sh,
-	uint16_t *eepromdata, HAL_OPS_CONFIG *ah_config, HAL_STATUS *status)
+	/*uint16_t *eepromdata, HAL_OPS_CONFIG *ah_config,*/ HAL_STATUS *status)
 {
 #define	N(a)	(sizeof(a)/sizeof(a[0]))
 	struct ath_hal_5210 *ahp;
@@ -318,7 +318,7 @@ static HAL_BOOL
 ar5210GetChannelEdges(struct ath_hal *ah,
 	uint16_t flags, uint16_t *low, uint16_t *high)
 {
-	if (flags & IEEE80211_CHAN_5GHZ) {
+	if (flags & CHANNEL_5GHZ) {
 		*low = 5120;
 		*high = 5430;
 		return AH_TRUE;
@@ -328,14 +328,19 @@ ar5210GetChannelEdges(struct ath_hal *ah,
 }
 
 static HAL_BOOL
-ar5210GetChipPowerLimits(struct ath_hal *ah, struct ieee80211_channel *chan)
+ar5210GetChipPowerLimits(struct ath_hal *ah, HAL_CHANNEL *chan, uint32_t nchans)
 {
+	int i;
+
 	/* XXX fill in, this is just a placeholder */
-	HALDEBUG(ah, HAL_DEBUG_ATTACH,
-	    "%s: no min/max power for %u/0x%x\n",
-	    __func__, chan->ic_freq, chan->ic_flags);
-	chan->ic_maxpower = AR5210_MAX_RATE_POWER;
-	chan->ic_minpower = 0;
+	for(i = 0; i < nchans; i++)
+	{
+		HALDEBUG(ah, HAL_DEBUG_ATTACH,
+	    	"%s: no min/max power for %u/0x%x\n",
+	    	__func__, (chan+i)->ic_freq, (chan+i)->ic_flags);
+		(chan+i)->ic_maxpower = AR5210_MAX_RATE_POWER;
+		(chan+i)->ic_minpower = 0;
+	}
 	return AH_TRUE;
 }
 

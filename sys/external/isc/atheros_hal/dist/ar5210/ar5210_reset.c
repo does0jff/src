@@ -57,7 +57,7 @@ static const uint8_t ar5k0007_pwrSettings[17] = {
 
 static HAL_BOOL ar5210SetResetReg(struct ath_hal *,
 		uint32_t resetMask, u_int delay);
-static HAL_BOOL ar5210SetChannel(struct ath_hal *, struct ieee80211_channel *);
+static HAL_BOOL ar5210SetChannel(struct ath_hal *, struct HAL_CHANNEL_INTERNAL *);
 static void ar5210SetOperatingMode(struct ath_hal *, int opmode);
 
 /*
@@ -70,7 +70,7 @@ static void ar5210SetOperatingMode(struct ath_hal *, int opmode);
  */
 HAL_BOOL
 ar5210Reset(struct ath_hal *ah, HAL_OPMODE opmode,
-	struct ieee80211_channel *chan, HAL_BOOL bChannelChange,
+	HAL_CHANNEL *chan, HAL_BOOL bChannelChange,
 	HAL_RESET_TYPE resetType,
 	HAL_STATUS *status)
 {
@@ -85,10 +85,10 @@ ar5210Reset(struct ath_hal *ah, HAL_OPMODE opmode,
 
 	HALDEBUG(ah, HAL_DEBUG_RESET,
 	    "%s: opmode %u channel %u/0x%x %s channel\n", __func__,
-	    opmode, chan->ic_freq, chan->ic_flags,
+	    opmode, chan->channel, chan->channelFlags,
 	    bChannelChange ? "change" : "same");
 
-	if (!IEEE80211_IS_CHAN_5GHZ(chan)) {
+	if (!(chan->channelFlags & CHANNEL_5GHZ)) {
 		/* Only 11a mode */
 		HALDEBUG(ah, HAL_DEBUG_ANY, "%s: channel not 5GHz\n", __func__);
 		FAIL(HAL_EINVAL);
@@ -100,7 +100,7 @@ ar5210Reset(struct ath_hal *ah, HAL_OPMODE opmode,
 	if (ichan == AH_NULL) {
 		HALDEBUG(ah, HAL_DEBUG_ANY,
 		    "%s: invalid channel %u/0x%x; no mapping\n",
-		    __func__, chan->ic_freq, chan->ic_flags);
+		    __func__, chan->channel, chan->channelFlags);
 		FAIL(HAL_EINVAL);
 	}
 	switch (opmode) {
@@ -155,11 +155,13 @@ ar5210Reset(struct ath_hal *ah, HAL_OPMODE opmode,
 	/* Restore previous led state */
 	OS_REG_WRITE(ah, AR_PCICFG, OS_REG_READ(ah, AR_PCICFG) | ledstate);
 
+//What about this?
 #if 0
 	OS_REG_WRITE(ah, AR_BSS_ID0, LE_READ_4(ahp->ah_bssid));
 	OS_REG_WRITE(ah, AR_BSS_ID1, LE_READ_2(ahp->ah_bssid + 4));
 #endif
 	/* BSSID, association id, ps-poll */
+	//because this does the job of the two lines above
 	ar5210WriteAssocid(ah, ahp->ah_bssid, ahp->ah_associd);
 
 	OS_REG_WRITE(ah, AR_TXDP0, 0);
@@ -197,6 +199,7 @@ ar5210Reset(struct ath_hal *ah, HAL_OPMODE opmode,
 	OS_REG_WRITE(ah, AR_CLR_TMASK, 1);
 	OS_REG_WRITE(ah, AR_TRIG_LEV, 1);	/* minimum */
 
+	//Instead of OS_REG_WRITE(ah,AR_DIAG_SW,0)
 	ar5210UpdateDiagReg(ah, 0);
 
 	OS_REG_WRITE(ah, AR_CFP_PERIOD, 0);
@@ -245,8 +248,19 @@ ar5210Reset(struct ath_hal *ah, HAL_OPMODE opmode,
 		    __func__);
 		FAIL(HAL_EIO);
 	}
+	
+	//Using old condition
+	if (bChannelChange) {
+		if (!(ichan->privFlags & CHANNEL_DFS)) 
+			ichan->privFlags &= ~CHANNEL_INTERFERENCE;
+		chan->channelFlags = ichan->channelFlags;
+		chan->privFlags = ichan->privFlags;
+	}
+	//How to proceed this case?
+	/*
 	if (bChannelChange && !IEEE80211_IS_CHAN_DFS(chan)) 
-		chan->ic_state &= ~IEEE80211_CHANSTATE_CWINT;
+		chan-> &= ~CHANNEL_CW_INT;
+	 */
 
 	/* Activate the PHY */
 	OS_REG_WRITE(ah, AR_PHY_ACTIVE, AR_PHY_ENABLE);
@@ -260,7 +274,7 @@ ar5210Reset(struct ath_hal *ah, HAL_OPMODE opmode,
 
 	/* Perform noise floor calibration and set status */
 	if (!ar5210CalNoiseFloor(ah, ichan)) {
-		chan->ic_state |= IEEE80211_CHANSTATE_CWINT;
+		chan->channelFlags |= CHANNEL_CW_INT;
 		HALDEBUG(ah, HAL_DEBUG_ANY,
 		    "%s: noise floor calibration failed\n", __func__);
 		FAIL(HAL_EIO);
@@ -389,12 +403,12 @@ ar5210Disable(struct ath_hal *ah)
  * Places the hardware into reset and then pulls it out of reset
  */
 HAL_BOOL
-ar5210ChipReset(struct ath_hal *ah, struct ieee80211_channel *chan)
+ar5210ChipReset(struct ath_hal *ah, struct HAL_CHANNEL *chan)
 {
 #define	AR_RC_HW (AR_RC_RPCU | AR_RC_RDMA | AR_RC_RPHY | AR_RC_RMAC)
 
 	HALDEBUG(ah, HAL_DEBUG_RESET, "%s turbo %s\n", __func__,
-		chan && IEEE80211_IS_CHAN_TURBO(chan) ?
+		chan && IS_CHAN_TURBO(chan) ?
 		"enabled" : "disabled");
 
 	if (!ar5210SetPowerMode(ah, HAL_PM_AWAKE, AH_TRUE))
@@ -402,7 +416,7 @@ ar5210ChipReset(struct ath_hal *ah, struct ieee80211_channel *chan)
 
 	/* Place chip in turbo before reset to cleanly reset clocks */
 	OS_REG_WRITE(ah, AR_PHY_FRCTL,
-		chan && IEEE80211_IS_CHAN_TURBO(chan) ? AR_PHY_TURBO_MODE : 0);
+		chan && IS_CHAN_TURBO(chan) ? AR_PHY_TURBO_MODE : 0);
 
 	/*
 	 * Reset the HW.
@@ -449,8 +463,7 @@ enum {
  * changes.
  */
 HAL_BOOL
-ar5210PerCalibrationN(struct ath_hal *ah,
-	struct ieee80211_channel *chan, u_int chainMask,
+ar5210PerCalibrationN(struct ath_hal *ah, HAL_CHANNEL *chan, u_int chainMask,
 	HAL_BOOL longCal, HAL_BOOL *isCalDone)
 {
 	uint32_t regBeacon;
@@ -554,7 +567,7 @@ ar5210PerCalibrationN(struct ath_hal *ah,
 		    "%s: Performing 2nd Noise Cal\n", __func__);
 		OS_DELAY(5000);
 		if (!ar5210CalNoiseFloor(ah, ichan))
-			chan->ic_state |= IEEE80211_CHANSTATE_CWINT;
+			chan->channelFlags |= CHANNEL_CW_INT;
 	}
 
 	/* Clear tx and rx disable bit */
@@ -570,14 +583,14 @@ ar5210PerCalibrationN(struct ath_hal *ah,
 }
 
 HAL_BOOL
-ar5210PerCalibration(struct ath_hal *ah, struct ieee80211_channel *chan,
+ar5210PerCalibration(struct ath_hal *ah, HAL_CHANNEL *chan,
 	HAL_BOOL *isIQdone)
 {
 	return ar5210PerCalibrationN(ah,  chan, 0x1, AH_TRUE, isIQdone);
 }
 
 HAL_BOOL
-ar5210ResetCalValid(struct ath_hal *ah, const struct ieee80211_channel *chan)
+ar5210ResetCalValid(struct ath_hal *ah, const HAL_CHANNEL *chan)
 {
 	return AH_TRUE;
 }
@@ -602,6 +615,8 @@ ar5210SetResetReg(struct ath_hal *ah, uint32_t resetMask, u_int delay)
 		if (isBigEndian()) {
 			/*
 			 * Set CFG, little-endian for descriptor accesses.
+			 * Missing | AR_CFG_SWRG
+			 * and also missing LE_READ_4 while writting the register LE_READ_4(&mask)
 			 */
 			mask = INIT_CONFIG_STATUS | AR_CFG_SWTD | AR_CFG_SWRD;
 			OS_REG_WRITE(ah, AR_CFG, mask);
@@ -731,10 +746,9 @@ ar5210SetTxPowerLimit(struct ath_hal *ah, uint32_t limit)
  * Get TXPower values and set them in the radio
  */
 static HAL_BOOL
-setupPowerSettings(struct ath_hal *ah, const struct ieee80211_channel *chan,
+setupPowerSettings(struct ath_hal *ah, const HAL_CHANNEL *chan,
 	uint8_t cp[17])
 {
-	uint16_t freq = ath_hal_gethwchannel(ah, chan);
 	const HAL_EEPROM_v1 *ee = AH_PRIVATE(ah)->ah_eeprom;
 	uint8_t gainFRD, gainF36, gainF48, gainF54;
 	uint8_t dBmRD, dBm36, dBm48, dBm54, dontcare;
@@ -745,9 +759,9 @@ setupPowerSettings(struct ath_hal *ah, const struct ieee80211_channel *chan,
 	cp[15] = (ee->ee_biasCurrents >> 4) & 0x7;
 	cp[16] = ee->ee_biasCurrents & 0x7;
 
-	if (freq < 5170 || freq > 5320) {
+	if (chan->channel < 5170 || chan->channel > 5320) {
 		HALDEBUG(ah, HAL_DEBUG_ANY, "%s: invalid channel %u\n",
-		    __func__, freq);
+		    __func__, chan->channel);
 		return AH_FALSE;
 	}
 
@@ -767,7 +781,7 @@ setupPowerSettings(struct ath_hal *ah, const struct ieee80211_channel *chan,
 #endif
 		return AH_FALSE;
 	}
-	group = ((freq - 5170) / 10);
+	group = ((chan->channel - 5170) / 10);
 
 	if (group > 11) {
 		/* Pull 5.29 into the 5.27 group */
@@ -833,7 +847,7 @@ setupPowerSettings(struct ath_hal *ah, const struct ieee80211_channel *chan,
  * vectors (as determined by the mode), and station configuration
  */
 HAL_BOOL
-ar5210SetTransmitPower(struct ath_hal *ah, const struct ieee80211_channel *chan)
+ar5210SetTransmitPower(struct ath_hal *ah, const HAL_CHANNEL *chan)
 {
 #define	N(a)	(sizeof (a) / sizeof (a[0]))
 	static const uint32_t pwr_regs_start[17] = {
@@ -921,13 +935,12 @@ ar5210SetTransmitPower(struct ath_hal *ah, const struct ieee80211_channel *chan)
  *   or by disabling the AGC.
  */
 static HAL_BOOL
-ar5210SetChannel(struct ath_hal *ah, struct ieee80211_channel *chan)
+ar5210SetChannel(struct ath_hal *ah, HAL_CHANNEL_INTERNAL *chan)
 {
-	uint16_t freq = ath_hal_gethwchannel(ah, chan);
 	uint32_t data;
 
 	/* Set the Channel */
-	data = ath_hal_reverseBits((freq - 5120)/10, 5);
+	data = ath_hal_reverseBits((chan->channel - 5120)/10, 5);
 	data = (data << 1) | 0x41;
 	OS_REG_WRITE(ah, AR_PHY(0x27), data);
 	OS_REG_WRITE(ah, AR_PHY(0x30), 0);

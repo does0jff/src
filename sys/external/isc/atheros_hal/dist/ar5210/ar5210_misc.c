@@ -572,12 +572,12 @@ ar5210AniControl(struct ath_hal *ah, HAL_ANI_CMD cmd, int param)
 
 void
 ar5210RxMonitor(struct ath_hal *ah, const HAL_NODE_STATS *stats,
-	const struct ieee80211_channel *chan)
+	HAL_CHANNEL *chan)
 {
 }
 
 void
-ar5210AniPoll(struct ath_hal *ah, const struct ieee80211_channel *chan)
+ar5210AniPoll(struct ath_hal *ah, HAL_CHANNEL *chan)
 {
 }
 

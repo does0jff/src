@@ -515,7 +515,7 @@ ath_hal_computetxtime(struct ath_hal *ah,
 }
 
 int
-ath_hal_get_curmode(struct ath_hal *ah, const struct ieee80211_channel *chan)
+ath_hal_get_curmode(struct ath_hal *ah, const HAL_CHANNEL *chan)
 {
 	/*
 	 * Pick a default mode at bootup. A channel change is inevitable.
@@ -574,7 +574,7 @@ typedef enum {
  * and 11g is 44MHz, but AR5416 and later run 11b in 11bg mode, right?
  */
 static WIRELESS_MODE
-ath_hal_chan2wmode(struct ath_hal *ah, const struct ieee80211_channel *chan)
+ath_hal_chan2wmode(struct ath_hal *ah, const HAL_CHANNEL *chan)
 {
 	if (IS_CHAN_B(chan))
 		return WIRELESS_MODE_11b;
@@ -598,7 +598,7 @@ static const uint8_t CLOCK_RATE[]  = { 40,  80,   22,  44,   88  };
 u_int
 ath_hal_mac_clks(struct ath_hal *ah, u_int usecs)
 {
-	const struct ieee80211_channel *c = AH_PRIVATE(ah)->ah_curchan;
+	const HAL_CHANNEL *c = AH_PRIVATE(ah)->ah_curchan;
 	u_int clks;
 
 	/* NB: ah_curchan may be null when called attach time */
@@ -638,7 +638,7 @@ ath_hal_mac_usec(struct ath_hal *ah, u_int clks)
 uint64_t
 ath_hal_mac_psec(struct ath_hal *ah, u_int clks)
 {
-	const struct ieee80211_channel *c = AH_PRIVATE(ah)->ah_curchan;
+	const HAL_CHANNEL *c = AH_PRIVATE(ah)->ah_curchan;
 	uint64_t psec;
 
 	/* NB: ah_curchan may be null when called attach time */
@@ -1157,7 +1157,7 @@ static const int16_t NOISE_FLOOR[] = { -96, -93,  -98, -96,  -93 };
  *     implement the ah_getChanNoise method.
  */
 int16_t
-ath_hal_getChanNoise(struct ath_hal *ah, const struct ieee80211_channel *chan)
+ath_hal_getChanNoise(struct ath_hal *ah, const HAL_CHANNEL *chan)
 {
 	HAL_CHANNEL_INTERNAL *ichan;
 
@@ -1165,7 +1165,7 @@ ath_hal_getChanNoise(struct ath_hal *ah, const struct ieee80211_channel *chan)
 	if (ichan == AH_NULL) {
 		HALDEBUG(ah, HAL_DEBUG_NFCAL,
 		    "%s: invalid channel %u/0x%x; no mapping\n",
-		    __func__, chan->ic_freq, chan->ic_flags);
+		    __func__, chan->channel, chan->channelFlags);
 		return 0;
 	}
 	if (ichan->rawNoiseFloor == 0) {
@@ -1188,7 +1188,7 @@ ath_hal_getChanNoise(struct ath_hal *ah, const struct ieee80211_channel *chan)
  */
 int
 ath_hal_get_mimo_chan_noise(struct ath_hal *ah,
-    const struct ieee80211_channel *chan, int16_t *nf_ctl,
+    const HAL_CHANNEL *chan, int16_t *nf_ctl,
     int16_t *nf_ext)
 {
 	HAL_CHANNEL_INTERNAL *ichan;
@@ -1198,7 +1198,7 @@ ath_hal_get_mimo_chan_noise(struct ath_hal *ah,
 	if (ichan == AH_NULL) {
 		HALDEBUG(ah, HAL_DEBUG_NFCAL,
 		    "%s: invalid channel %u/0x%x; no mapping\n",
-		    __func__, chan->ic_freq, chan->ic_flags);
+		    __func__, chan->channel, chan->channelFlags);
 		for (i = 0; i < AH_MAX_CHAINS; i++) {
 			nf_ctl[i] = nf_ext[i] = 0;
 		}

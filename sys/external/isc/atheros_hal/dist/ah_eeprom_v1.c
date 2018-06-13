@@ -70,6 +70,7 @@ v1EepromGet(struct ath_hal *ah, int param, void *val)
 	}
 }
 
+//Return type changed
 static HAL_STATUS
 v1EepromSet(struct ath_hal *ah, int param, int v)
 {

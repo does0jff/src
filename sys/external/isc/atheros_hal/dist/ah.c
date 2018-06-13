@@ -30,13 +30,13 @@
 
 /* linker set of registered chips */
 OS_SET_DECLARE(ah_chips, struct ath_hal_chip);
-TAILQ_HEAD(, ath_hal_chip) ah_chip_list = TAILQ_HEAD_INITIALIZER(ah_chip_list);
+//TAILQ_HEAD(, ath_hal_chip) ah_chip_list = TAILQ_HEAD_INITIALIZER(ah_chip_list);
 
 int
 ath_hal_add_chip(struct ath_hal_chip *ahc)
 {
 
-	TAILQ_INSERT_TAIL(&ah_chip_list, ahc, node);
+//	TAILQ_INSERT_TAIL(&ah_chip_list, ahc, node);
 	return (0);
 }
 
@@ -44,7 +44,7 @@ int
 ath_hal_remove_chip(struct ath_hal_chip *ahc)
 {
 
-	TAILQ_REMOVE(&ah_chip_list, ahc, node);
+	//TAILQ_REMOVE(&ah_chip_list, ahc, node);
 	return (0);
 }
 
@@ -65,12 +65,12 @@ ath_hal_probe(uint16_t vendorid, uint16_t devid)
 			return name;
 	}
 
-	/* List */
+	/* List 
 	TAILQ_FOREACH(pc, &ah_chip_list, node) {
 		const char *name = pc->probe(vendorid, devid);
 		if (name != AH_NULL)
 			return name;
-	}
+	}*/
 
 	return AH_NULL;
 }
@@ -84,8 +84,8 @@ ath_hal_probe(uint16_t vendorid, uint16_t devid)
  */
 struct ath_hal*
 ath_hal_attach(uint16_t devid, HAL_SOFTC sc,
-	HAL_BUS_TAG st, HAL_BUS_HANDLE sh, uint16_t *eepromdata,
-	HAL_OPS_CONFIG *ah_config,
+	HAL_BUS_TAG st, HAL_BUS_HANDLE sh, /*uint16_t *eepromdata,
+	HAL_OPS_CONFIG *ah_config,*/
 	HAL_STATUS *error)
 {
 	struct ath_hal_chip * const *pchip;
@@ -98,8 +98,7 @@ ath_hal_attach(uint16_t devid, HAL_SOFTC sc,
 		/* XXX don't have vendorid, assume atheros one works */
 		if (chip->probe(ATHEROS_VENDOR_ID, devid) == AH_NULL)
 			continue;
-		ah = chip->attach(devid, sc, st, sh, eepromdata, ah_config,
-		    error);
+		ah = chip->attach(devid, sc, st, sh, error);
 		if (ah != AH_NULL) {
 			/* copy back private state to public area */
 			ah->ah_devid = AH_PRIVATE(ah)->ah_devid;
@@ -113,18 +112,19 @@ ath_hal_attach(uint16_t devid, HAL_SOFTC sc,
 		}
 	}
 
-	/* List */
-	TAILQ_FOREACH(pc, &ah_chip_list, node) {
+	/* List 
+	TAILQ_FOREACH(pc, &ah_chip_list, node) 
+	{
 		struct ath_hal_chip *chip = pc;
 		struct ath_hal *ah;
 
-		/* XXX don't have vendorid, assume atheros one works */
+		/* XXX don't have vendorid, assume atheros one works 
 		if (chip->probe(ATHEROS_VENDOR_ID, devid) == AH_NULL)
 			continue;
 		ah = chip->attach(devid, sc, st, sh, eepromdata, ah_config,
 		    error);
 		if (ah != AH_NULL) {
-			/* copy back private state to public area */
+			/* copy back private state to public area 
 			ah->ah_devid = AH_PRIVATE(ah)->ah_devid;
 			ah->ah_subvendorid = AH_PRIVATE(ah)->ah_subvendorid;
 			ah->ah_macVersion = AH_PRIVATE(ah)->ah_macVersion;
@@ -134,7 +134,7 @@ ath_hal_attach(uint16_t devid, HAL_SOFTC sc,
 			ah->ah_analog2GhzRev = AH_PRIVATE(ah)->ah_analog2GhzRev;
 			return ah;
 		}
-	}
+	}*/
 
 	return AH_NULL;
 }
@@ -214,13 +214,13 @@ ath_hal_getwirelessmodes(struct ath_hal*ah)
 
 /* linker set of registered RF backends */
 OS_SET_DECLARE(ah_rfs, struct ath_hal_rf);
-TAILQ_HEAD(, ath_hal_rf) ah_rf_list = TAILQ_HEAD_INITIALIZER(ah_rf_list);
+//TAILQ_HEAD(, ath_hal_rf) ah_rf_list = TAILQ_HEAD_INITIALIZER(ah_rf_list);
 
 int
 ath_hal_add_rf(struct ath_hal_rf *arf)
 {
 
-	TAILQ_INSERT_TAIL(&ah_rf_list, arf, node);
+	//TAILQ_INSERT_TAIL(&ah_rf_list, arf, node);
 	return (0);
 }
 
@@ -228,7 +228,7 @@ int
 ath_hal_remove_rf(struct ath_hal_rf *arf)
 {
 
-	TAILQ_REMOVE(&ah_rf_list, arf, node);
+	//TAILQ_REMOVE(&ah_rf_list, arf, node);
 	return (0);
 }
 
@@ -248,10 +248,11 @@ ath_hal_rfprobe(struct ath_hal *ah, HAL_STATUS *ecode)
 			return rf;
 	}
 
-	TAILQ_FOREACH(rf, &ah_rf_list, node) {
+	/*TAILQ_FOREACH(rf, &ah_rf_list, node) {
 		if (rf->probe(ah))
 			return rf;
 	}
+	 */
 	*ecode = HAL_ENOTSUPP;
 	return AH_NULL;
 }
@@ -522,34 +523,34 @@ ath_hal_get_curmode(struct ath_hal *ah, const struct ieee80211_channel *chan)
 	if (!chan)
 		return HAL_MODE_11NG_HT20;
 
-	if (IEEE80211_IS_CHAN_TURBO(chan))
+	if (IS_CHAN_TURBO(chan))
 		return HAL_MODE_TURBO;
 
 	/* check for NA_HT before plain A, since IS_CHAN_A includes NA_HT */
-	if (IEEE80211_IS_CHAN_5GHZ(chan) && IEEE80211_IS_CHAN_HT20(chan))
+	if (IS_CHAN_5GHZ(chan) && IS_CHAN_HT20(chan))
 		return HAL_MODE_11NA_HT20;
-	if (IEEE80211_IS_CHAN_5GHZ(chan) && IEEE80211_IS_CHAN_HT40U(chan))
+	if (IS_CHAN_5GHZ(chan) && IS_CHAN_HT40PLUS(chan))
 		return HAL_MODE_11NA_HT40PLUS;
-	if (IEEE80211_IS_CHAN_5GHZ(chan) && IEEE80211_IS_CHAN_HT40D(chan))
+	if (IS_CHAN_5GHZ(chan) && IS_CHAN_HT40MINUS(chan))
 		return HAL_MODE_11NA_HT40MINUS;
-	if (IEEE80211_IS_CHAN_A(chan))
+	if (IS_CHAN_A(chan))
 		return HAL_MODE_11A;
 
 	/* check for NG_HT before plain G, since IS_CHAN_G includes NG_HT */
-	if (IEEE80211_IS_CHAN_2GHZ(chan) && IEEE80211_IS_CHAN_HT20(chan))
+	if (IS_CHAN_2GHZ(chan) && IS_CHAN_HT20(chan))
 		return HAL_MODE_11NG_HT20;
-	if (IEEE80211_IS_CHAN_2GHZ(chan) && IEEE80211_IS_CHAN_HT40U(chan))
+	if (IS_CHAN_2GHZ(chan) && IS_CHAN_HT40PLUS(chan))
 		return HAL_MODE_11NG_HT40PLUS;
-	if (IEEE80211_IS_CHAN_2GHZ(chan) && IEEE80211_IS_CHAN_HT40D(chan))
+	if (IS_CHAN_2GHZ(chan) && IS_CHAN_HT40MINUS(chan))
 		return HAL_MODE_11NG_HT40MINUS;
 
 	/*
 	 * XXX For FreeBSD, will this work correctly given the DYN
 	 * chan mode (OFDM+CCK dynamic) ? We have pure-G versions DYN-BG..
 	 */
-	if (IEEE80211_IS_CHAN_G(chan))
+	if (IS_CHAN_G(chan))
 		return HAL_MODE_11G;
-	if (IEEE80211_IS_CHAN_B(chan))
+	if (IS_CHAN_B(chan))
 		return HAL_MODE_11B;
 
 	HALASSERT(0);
@@ -575,13 +576,13 @@ typedef enum {
 static WIRELESS_MODE
 ath_hal_chan2wmode(struct ath_hal *ah, const struct ieee80211_channel *chan)
 {
-	if (IEEE80211_IS_CHAN_B(chan))
+	if (IS_CHAN_B(chan))
 		return WIRELESS_MODE_11b;
-	if (IEEE80211_IS_CHAN_G(chan))
+	if (IS_CHAN_G(chan))
 		return WIRELESS_MODE_11g;
-	if (IEEE80211_IS_CHAN_108G(chan))
+	if (IS_CHAN_108G(chan))
 		return WIRELESS_MODE_108g;
-	if (IEEE80211_IS_CHAN_TURBO(chan))
+	if (IS_CHAN_TURBO(chan))
 		return WIRELESS_MODE_TURBO;
 	return WIRELESS_MODE_11a;
 }
@@ -604,19 +605,19 @@ ath_hal_mac_clks(struct ath_hal *ah, u_int usecs)
 	/* XXX merlin and later specific workaround - 5ghz fast clock is 44 */
 	if (c != AH_NULL && IS_5GHZ_FAST_CLOCK_EN(ah, c)) {
 		clks = usecs * CLOCK_FAST_RATE_5GHZ_OFDM;
-		if (IEEE80211_IS_CHAN_HT40(c))
+		if (IS_CHAN_HT40(c))
 			clks <<= 1;
 	} else if (c != AH_NULL) {
 		clks = usecs * CLOCK_RATE[ath_hal_chan2wmode(ah, c)];
-		if (IEEE80211_IS_CHAN_HT40(c))
+		if (IS_CHAN_HT40(c))
 			clks <<= 1;
 	} else
 		clks = usecs * CLOCK_RATE[WIRELESS_MODE_11b];
 
 	/* Compensate for half/quarter rate */
-	if (c != AH_NULL && IEEE80211_IS_CHAN_HALF(c))
+	if (c != AH_NULL && IS_CHAN_HALF_RATE(c))
 		clks = clks / 2;
-	else if (c != AH_NULL && IEEE80211_IS_CHAN_QUARTER(c))
+	else if (c != AH_NULL && IS_CHAN_QUARTER_RATE(c))
 		clks = clks / 4;
 
 	return clks;
@@ -644,11 +645,11 @@ ath_hal_mac_psec(struct ath_hal *ah, u_int clks)
 	/* XXX merlin and later specific workaround - 5ghz fast clock is 44 */
 	if (c != AH_NULL && IS_5GHZ_FAST_CLOCK_EN(ah, c)) {
 		psec = (clks * 1000000ULL) / CLOCK_FAST_RATE_5GHZ_OFDM;
-		if (IEEE80211_IS_CHAN_HT40(c))
+		if (IS_CHAN_HT40(c))
 			psec >>= 1;
 	} else if (c != AH_NULL) {
 		psec = (clks * 1000000ULL) / CLOCK_RATE[ath_hal_chan2wmode(ah, c)];
-		if (IEEE80211_IS_CHAN_HT40(c))
+		if (IS_CHAN_HT40(c))
 			psec >>= 1;
 	} else
 		psec = (clks * 1000000ULL) / CLOCK_RATE[WIRELESS_MODE_11b];

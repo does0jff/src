@@ -23,9 +23,6 @@
 
 #include "ah.h"
 
-#include <net80211/_ieee80211.h>
-#include <net80211/ieee80211_regdomain.h>
-
 #include "ah_internal.h"
 #include "ah_eeprom.h"
 #include "ah_devid.h"
@@ -101,32 +98,32 @@
 #include "ah_regdomain/ah_rd_domains.h"
 
 static const struct cmode modes[] = {
-	{ HAL_MODE_TURBO,	IEEE80211_CHAN_ST,	&regDmn5GhzTurboFreq[0] },
-	{ HAL_MODE_11A,		IEEE80211_CHAN_A,	&regDmn5GhzFreq[0] },
-	{ HAL_MODE_11B,		IEEE80211_CHAN_B,	&regDmn2GhzFreq[0] },
-	{ HAL_MODE_11G,		IEEE80211_CHAN_G,	&regDmn2Ghz11gFreq[0] },
-	{ HAL_MODE_11G_TURBO,	IEEE80211_CHAN_108G,	&regDmn2Ghz11gTurboFreq[0] },
-	{ HAL_MODE_11A_TURBO,	IEEE80211_CHAN_108A,	&regDmn5GhzTurboFreq[0] },
+	{ HAL_MODE_TURBO,	CHANNEL_ST,	&regDmn5GhzTurboFreq[0] },
+	{ HAL_MODE_11A,		CHANNEL_A,	&regDmn5GhzFreq[0] },
+	{ HAL_MODE_11B,		CHANNEL_B,	&regDmn2GhzFreq[0] },
+	{ HAL_MODE_11G,		CHANNEL_G,	&regDmn2Ghz11gFreq[0] },
+	{ HAL_MODE_11G_TURBO,	CHANNEL_108G,	&regDmn2Ghz11gTurboFreq[0] },
+	{ HAL_MODE_11A_TURBO,	CHANNEL_108A,	&regDmn5GhzTurboFreq[0] },
 	{ HAL_MODE_11A_QUARTER_RATE,
-	  IEEE80211_CHAN_A | IEEE80211_CHAN_QUARTER,	&regDmn5GhzFreq[0] },
+	  CHANNEL_A | CHANNEL_QUARTER,	&regDmn5GhzFreq[0] },
 	{ HAL_MODE_11A_HALF_RATE,
-	  IEEE80211_CHAN_A | IEEE80211_CHAN_HALF,	&regDmn5GhzFreq[0] },
+	  CHANNEL_A | CHANNEL_HALF,	&regDmn5GhzFreq[0] },
 	{ HAL_MODE_11G_QUARTER_RATE,
-	  IEEE80211_CHAN_G | IEEE80211_CHAN_QUARTER,	&regDmn2Ghz11gFreq[0] },
+	  CHANNEL_G | CHANNEL_QUARTER,	&regDmn2Ghz11gFreq[0] },
 	{ HAL_MODE_11G_HALF_RATE,
-	  IEEE80211_CHAN_G | IEEE80211_CHAN_HALF,	&regDmn2Ghz11gFreq[0] },
+	  CHANNEL_G | CHANNEL_HALF,	&regDmn2Ghz11gFreq[0] },
 	{ HAL_MODE_11NG_HT20,
-	  IEEE80211_CHAN_G | IEEE80211_CHAN_HT20,	&regDmn2Ghz11gFreq[0] },
+	  CHANNEL_G_HT20,	&regDmn2Ghz11gFreq[0] },
 	{ HAL_MODE_11NG_HT40PLUS,
-	  IEEE80211_CHAN_G | IEEE80211_CHAN_HT40U,	&regDmn2Ghz11gFreq[0] },
+	  CHANNEL_G_HT40PLUS,	&regDmn2Ghz11gFreq[0] },
 	{ HAL_MODE_11NG_HT40MINUS,
-	  IEEE80211_CHAN_G | IEEE80211_CHAN_HT40D,	&regDmn2Ghz11gFreq[0] },
+	  CHANNEL_G_HT40MINUS,	&regDmn2Ghz11gFreq[0] },
 	{ HAL_MODE_11NA_HT20,
-	  IEEE80211_CHAN_A | IEEE80211_CHAN_HT20,	&regDmn5GhzFreq[0] },
+	  CHANNEL_A_HT20,	&regDmn5GhzFreq[0] },
 	{ HAL_MODE_11NA_HT40PLUS,
-	  IEEE80211_CHAN_A | IEEE80211_CHAN_HT40U,	&regDmn5GhzFreq[0] },
+	  CHANNEL_A_HT40PLUS,	&regDmn5GhzFreq[0] },
 	{ HAL_MODE_11NA_HT40MINUS,
-	  IEEE80211_CHAN_A | IEEE80211_CHAN_HT40D,	&regDmn5GhzFreq[0] },
+	  CHANNEL_A_HT40MINUS,	&regDmn5GhzFreq[0] },
 };
 
 static void ath_hal_update_dfsdomain(struct ath_hal *ah);
@@ -398,32 +395,32 @@ getchannelBM(u_int mode, REG_DOMAIN *rd)
 }
 
 static void
-setchannelflags(struct ieee80211_channel *c, REG_DMN_FREQ_BAND *fband,
+setchannelflags(HAL_CHANNEL *c, REG_DMN_FREQ_BAND *fband,
     REG_DOMAIN *rd)
 {
 	if (fband->usePassScan & rd->pscan)
-		c->ic_flags |= IEEE80211_CHAN_PASSIVE;
+		c->channelFlags |= IEEE80211_CHAN_PASSIVE;
 	if (fband->useDfs & rd->dfsMask)
-		c->ic_flags |= IEEE80211_CHAN_DFS;
-	if (IEEE80211_IS_CHAN_5GHZ(c) && (rd->flags & DISALLOW_ADHOC_11A))
-		c->ic_flags |= IEEE80211_CHAN_NOADHOC;
-	if (IEEE80211_IS_CHAN_TURBO(c) &&
+		c->channelFlags |= IEEE80211_CHAN_DFS;
+	if (IS_CHAN_5GHZ(c) && (rd->flags & DISALLOW_ADHOC_11A))
+		c->channelFlags |= IEEE80211_CHAN_NOADHOC;
+	if (IS_CHAN_TURBO(c) &&
 	    (rd->flags & DISALLOW_ADHOC_11A_TURB))
-		c->ic_flags |= IEEE80211_CHAN_NOADHOC;
+		c->channelFlags |= IEEE80211_CHAN_NOADHOC;
 	if (rd->flags & NO_HOSTAP)
-		c->ic_flags |= IEEE80211_CHAN_NOHOSTAP;
+		c->channelFlags |= IEEE80211_CHAN_NOHOSTAP;
 	if (rd->flags & LIMIT_FRAME_4MS)
-		c->ic_flags |= IEEE80211_CHAN_4MSXMIT;
+		c->channelFlags |= IEEE80211_CHAN_4MSXMIT;
 	if (rd->flags & NEED_NFC)
-		c->ic_flags |= CHANNEL_NFCREQUIRED;
+		c->channelFlags |= CHANNEL_NFCREQUIRED;
 }
 
 static int
-addchan(struct ath_hal *ah, struct ieee80211_channel chans[],
+addchan(struct ath_hal *ah, HAL_CHANNEL chans[],
     u_int maxchans, int *nchans, uint16_t freq, uint32_t flags,
     REG_DMN_FREQ_BAND *fband, REG_DOMAIN *rd)
 {
-	struct ieee80211_channel *c;
+	HAL_CHANNEL *c;
 
 	if (*nchans >= maxchans)
 		return (HAL_ENOMEM);
@@ -433,21 +430,21 @@ addchan(struct ath_hal *ah, struct ieee80211_channel chans[],
 	    __func__, *nchans, (int) freq, flags);
 
 	c = &chans[(*nchans)++];
-	c->ic_freq = freq;
-	c->ic_flags = flags;
+	c->channel = freq;
+	c->channelFlags = flags;
 	setchannelflags(c, fband, rd);
-	c->ic_maxregpower = fband->powerDfs;
+	c->maxRegTxPower = fband->powerDfs;
 	ath_hal_getpowerlimits(ah, c);
-	c->ic_maxantgain = fband->antennaMax;
+	c->maxAntGain = fband->antennaMax;
 
 	return (0);
 }
 
 static int
-copychan_prev(struct ath_hal *ah, struct ieee80211_channel chans[],
+copychan_prev(struct ath_hal *ah, HAL_CHANNEL chans[],
     u_int maxchans, int *nchans, uint16_t freq, uint32_t flags)
 {
-	struct ieee80211_channel *c;
+	HAL_CHANNEL *c;
 
 	if (*nchans == 0)
 		return (HAL_EINVAL);
@@ -461,7 +458,7 @@ copychan_prev(struct ath_hal *ah, struct ieee80211_channel chans[],
 
 	c = &chans[(*nchans)++];
 	c[0] = c[-1];
-	c->ic_freq = freq;
+	c->channel = freq;
 	/* XXX is it needed here? */
 	ath_hal_getpowerlimits(ah, c);
 
@@ -469,7 +466,7 @@ copychan_prev(struct ath_hal *ah, struct ieee80211_channel chans[],
 }
 
 static int
-add_chanlist_band(struct ath_hal *ah, struct ieee80211_channel chans[],
+add_chanlist_band(struct ath_hal *ah, HAL_CHANNEL chans[],
     int maxchans, int *nchans, uint16_t freq_lo, uint16_t freq_hi, int step,
     uint32_t flags, REG_DMN_FREQ_BAND *fband, REG_DOMAIN *rd)
 {
@@ -512,7 +509,7 @@ adj_freq_ht40(u_int mode, int *low_adj, int *hi_adj, int *channelSep)
 }
 
 static void
-add_chanlist_mode(struct ath_hal *ah, struct ieee80211_channel chans[],
+add_chanlist_mode(struct ath_hal *ah, HAL_CHANNEL chans[],
     u_int maxchans, int *nchans, const struct cmode *cm, REG_DOMAIN *rd,
     HAL_BOOL enableExtendedChannels)
 {
@@ -580,8 +577,8 @@ add_chanlist_mode(struct ath_hal *ah, struct ieee80211_channel chans[],
 		 * This means that 36 (5180) isn't considered as a
 		 * HT40 channel, and everything goes messed up from there.
 		 */
-		if ((cm->flags & IEEE80211_CHAN_5GHZ) &&
-		    (cm->flags & IEEE80211_CHAN_HT40U)) {
+		if ((cm->flags & CHANNEL_5GHZ) &&
+		    (cm->flags & CHANNEL_HT40PLUS)) {
 			if (bfreq_lo < 5180)
 				bfreq_lo = 5180;
 		}
@@ -590,8 +587,8 @@ add_chanlist_mode(struct ath_hal *ah, struct ieee80211_channel chans[],
 		 * Same with HT40D - need to start at 5200 or the low
 		 * channels are all wrong again.
 		 */
-		if ((cm->flags & IEEE80211_CHAN_5GHZ) &&
-		    (cm->flags & IEEE80211_CHAN_HT40D)) {
+		if ((cm->flags & CHANNEL_5GHZ) &&
+		    (cm->flags & CHANNEL_HT40MINUS)) {
 			if (bfreq_lo < 5200)
 				bfreq_lo = 5200;
 		}
@@ -656,7 +653,7 @@ getmodesmask(struct ath_hal *ah, REG_DOMAIN *rd5GHz, u_int modeSelect)
  */
 static HAL_STATUS
 getchannels(struct ath_hal *ah,
-    struct ieee80211_channel chans[], u_int maxchans, int *nchans,
+    HAL_CHANNEL chans[], u_int maxchans, int *nchans,
     u_int modeSelect, HAL_CTRY_CODE cc, HAL_REG_DOMAIN regDmn,
     HAL_BOOL enableExtendedChannels,
     COUNTRY_CODE_TO_ENUM_RD **pcountry,
@@ -690,9 +687,9 @@ getchannels(struct ath_hal *ah,
 			continue;
 		}
 
-		if (cm->flags & IEEE80211_CHAN_5GHZ)
+		if (cm->flags & CHANNEL_5GHZ)
 			rd = rd5GHz;
-		else if (cm->flags & IEEE80211_CHAN_2GHZ)
+		else if (cm->flags & CHANNEL_2GHZ)
 			rd = rd2GHz;
 		else {
 			ath_hal_printf(ah, "%s: Unkonwn HAL flags 0x%x\n",
@@ -719,7 +716,7 @@ done:
  */
 HAL_STATUS
 ath_hal_getchannels(struct ath_hal *ah,
-    struct ieee80211_channel chans[], u_int maxchans, int *nchans,
+    HAL_CHANNEL chans[], u_int maxchans, int *nchans,
     u_int modeSelect, HAL_CTRY_CODE cc, HAL_REG_DOMAIN regDmn,
     HAL_BOOL enableExtendedChannels)
 {
@@ -730,7 +727,7 @@ ath_hal_getchannels(struct ath_hal *ah,
 /*
  * Handle frequency mapping from 900Mhz range to 2.4GHz range
  * for GSM radios.  This is done when we need the h/w frequency
- * and the channel is marked IEEE80211_CHAN_GSM.
+ * and the channel is marked CHANNEL_GSM.
  */
 static int
 ath_hal_mapgsm(int sku, int freq)
@@ -757,17 +754,17 @@ ath_hal_mapgsm(int sku, int freq)
  */
 static HAL_BOOL
 assignPrivateChannels(struct ath_hal *ah,
-	struct ieee80211_channel chans[], int nchans, int sku)
+	HAL_CHANNEL chans[], int nchans, int sku)
 {
 	HAL_CHANNEL_INTERNAL *ic;
 	int i, j, next, freq;
 
 	next = 0;
 	for (i = 0; i < nchans; i++) {
-		struct ieee80211_channel *c = &chans[i];
+		HAL_CHANNEL *c = &chans[i];
 		for (j = i-1; j >= 0; j--)
-			if (chans[j].ic_freq == c->ic_freq) {
-				c->ic_devdata = chans[j].ic_devdata;
+			if (chans[j].channel == c->channel) {
+				c->devData = chans[j].devData;
 				break;
 			}
 		if (j < 0) {
@@ -784,12 +781,12 @@ assignPrivateChannels(struct ath_hal *ah,
 			 * down-converted.  The 802.11 layer uses the
 			 * true frequencies.
 			 */
-			freq = IEEE80211_IS_CHAN_GSM(c) ?
-			    ath_hal_mapgsm(sku, c->ic_freq) : c->ic_freq;
+			freq = IS_CHAN_GSM(c) ?
+			    ath_hal_mapgsm(sku, c->channel) : c->channel;
 
 			HALDEBUG(ah, HAL_DEBUG_REGDOMAIN,
 			    "%s: private[%3u] %u/0x%x -> channel %u\n",
-			    __func__, next, c->ic_freq, c->ic_flags, freq);
+			    __func__, next, c->channel, c->channelFlags, freq);
 
 			ic = &AH_PRIVATE(ah)->ah_channels[next];
 			/*
@@ -799,7 +796,7 @@ assignPrivateChannels(struct ath_hal *ah,
 			 */
 			OS_MEMZERO(ic, sizeof(*ic));
 			ic->channel = freq;
-			c->ic_devdata = next;
+			c->devData = next;
 			next++;
 		}
 	}
@@ -811,10 +808,11 @@ assignPrivateChannels(struct ath_hal *ah,
 
 /*
  * Setup the channel list based on the information in the EEPROM.
+ * Seems like I should extend this function as the old NetBSD one
  */
 HAL_STATUS
 ath_hal_init_channels(struct ath_hal *ah,
-    struct ieee80211_channel chans[], u_int maxchans, int *nchans,
+    HAL_CHANNEL chans[], u_int maxchans, int *nchans,
     u_int modeSelect, HAL_CTRY_CODE cc, HAL_REG_DOMAIN regDmn,
     HAL_BOOL enableExtendedChannels)
 {
@@ -846,7 +844,7 @@ ath_hal_init_channels(struct ath_hal *ah,
  */
 HAL_STATUS
 ath_hal_set_channels(struct ath_hal *ah,
-    struct ieee80211_channel chans[], int nchans,
+    HAL_CHANNEL chans[], int nchans,
     HAL_CTRY_CODE cc, HAL_REG_DOMAIN rd)
 {
 	COUNTRY_CODE_TO_ENUM_RD *country;
@@ -891,30 +889,31 @@ ath_hal_set_channels(struct ath_hal *ah,
 	return status;
 }
 
+//Set as DEBUG also looks pretty mysterious	to me
 #ifdef AH_DEBUG
 /*
  * Return the internal channel corresponding to a public channel.
  * NB: normally this routine is inline'd (see ah_internal.h)
  */
 HAL_CHANNEL_INTERNAL *
-ath_hal_checkchannel(struct ath_hal *ah, const struct ieee80211_channel *c)
+ath_hal_checkchannel(struct ath_hal *ah, const HAL_CHANNEL *c)
 {
-	HAL_CHANNEL_INTERNAL *cc = &AH_PRIVATE(ah)->ah_channels[c->ic_devdata];
+	HAL_CHANNEL_INTERNAL *cc = &AH_PRIVATE(ah)->ah_channels[c->devData];
 
-	if (c->ic_devdata < AH_PRIVATE(ah)->ah_nchan &&
-	    (c->ic_freq == cc->channel || IEEE80211_IS_CHAN_GSM(c)))
+	if (c->devData < AH_PRIVATE(ah)->ah_nchan &&
+	    (c->channel == cc->channel || IS_CHAN_GSM(c)))
 		return cc;
-	if (c->ic_devdata >= AH_PRIVATE(ah)->ah_nchan) {
+	if (c->devData >= AH_PRIVATE(ah)->ah_nchan) {
 		HALDEBUG(ah, HAL_DEBUG_ANY,
 		    "%s: bad mapping, devdata %u nchans %u\n",
-		   __func__, c->ic_devdata, AH_PRIVATE(ah)->ah_nchan);
-		HALASSERT(c->ic_devdata < AH_PRIVATE(ah)->ah_nchan);
+		   __func__, c->devData, AH_PRIVATE(ah)->ah_nchan);
+		HALASSERT(c->devData < AH_PRIVATE(ah)->ah_nchan);
 	} else {
 		HALDEBUG(ah, HAL_DEBUG_ANY,
 		    "%s: no match for %u/0x%x devdata %u channel %u\n",
-		   __func__, c->ic_freq, c->ic_flags, c->ic_devdata,
+		   __func__, c->channel, c->channelFlags, c->devData,
 		   cc->channel);
-		HALASSERT(c->ic_freq == cc->channel || IEEE80211_IS_CHAN_GSM(c));
+		HALASSERT(c->channel == cc->channel || IS_CHAN_GSM(c));
 	}
 	return AH_NULL;
 }
@@ -929,26 +928,26 @@ ath_hal_checkchannel(struct ath_hal *ah, const struct ieee80211_channel *c)
  * the current regulatory setup.
  */
 u_int
-ath_hal_getctl(struct ath_hal *ah, const struct ieee80211_channel *c)
+ath_hal_getctl(struct ath_hal *ah, const HAL_CHANNEL *c)
 {
 	u_int ctl;
 
 	if (AH_PRIVATE(ah)->ah_rd2GHz == AH_PRIVATE(ah)->ah_rd5GHz ||
 	    (ah->ah_countryCode == CTRY_DEFAULT && isWwrSKU(ah)))
 		ctl = SD_NO_CTL;
-	else if (IEEE80211_IS_CHAN_2GHZ(c))
+	else if (IS_CHAN_2GHZ(c))
 		ctl = AH_PRIVATE(ah)->ah_rd2GHz->conformanceTestLimit;
 	else
 		ctl = AH_PRIVATE(ah)->ah_rd5GHz->conformanceTestLimit;
-	if (IEEE80211_IS_CHAN_B(c))
+	if (IS_CHAN_B(c))
 		return ctl | CTL_11B;
-	if (IEEE80211_IS_CHAN_G(c))
+	if (IS_CHAN_G(c))
 		return ctl | CTL_11G;
-	if (IEEE80211_IS_CHAN_108G(c))
+	if (IS_CHAN_108G(c))
 		return ctl | CTL_108G;
-	if (IEEE80211_IS_CHAN_TURBO(c))
+	if (IS_CHAN_TURBO(c))
 		return ctl | CTL_TURBO;
-	if (IEEE80211_IS_CHAN_A(c))
+	if (IS_CHAN_A(c))
 		return ctl | CTL_11A;
 	return ctl;
 }
@@ -991,8 +990,8 @@ ath_hal_update_dfsdomain(struct ath_hal *ah)
  */
 u_int
 ath_hal_getantennareduction(struct ath_hal *ah,
-    const struct ieee80211_channel *chan, u_int twiceGain)
+    const HAL_CHANNEL *chan, u_int twiceGain)
 {
-	int8_t antennaMax = twiceGain - chan->ic_maxantgain*2;
+	int8_t antennaMax = twiceGain - chan->maxAntGain*2;
 	return (antennaMax < 0) ? 0 : antennaMax;
 }

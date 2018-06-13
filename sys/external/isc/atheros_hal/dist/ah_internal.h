@@ -29,8 +29,7 @@
 #define	AH_MIN(a,b)	((a)<(b)?(a):(b))
 #define	AH_MAX(a,b)	((a)>(b)?(a):(b))
 
-#include <net80211/_ieee80211.h>
-#include <sys/queue.h>			/* XXX for reasons */
+//Removed
 
 #ifndef NBBY
 #define	NBBY	8			/* number of bits/byte */
@@ -93,10 +92,10 @@ struct ath_hal_chip {
 	const char	*name;
 	const char	*(*probe)(uint16_t vendorid, uint16_t devid);
 	struct ath_hal	*(*attach)(uint16_t devid, HAL_SOFTC,
-			    HAL_BUS_TAG, HAL_BUS_HANDLE, uint16_t *eepromdata,
-			    HAL_OPS_CONFIG *ah,
+			    HAL_BUS_TAG, HAL_BUS_HANDLE, /*uint16_t *eepromdata,
+			    HAL_OPS_CONFIG *ah,*/
 			    HAL_STATUS *error);
-	TAILQ_ENTRY(ath_hal_chip) node;
+	//TAILQ_ENTRY(ath_hal_chip) node;
 };
 #ifndef AH_CHIP
 #define	AH_CHIP(_name, _probe, _attach)				\
@@ -122,7 +121,7 @@ struct ath_hal_rf {
 	const char	*name;
 	HAL_BOOL	(*probe)(struct ath_hal *ah);
 	HAL_BOOL	(*attach)(struct ath_hal *ah, HAL_STATUS *ecode);
-	TAILQ_ENTRY(ath_hal_rf) node;
+	//TAILQ_ENTRY(ath_hal_rf) node;
 };
 #ifndef AH_RF
 #define	AH_RF(_name, _probe, _attach)				\
@@ -212,7 +211,59 @@ typedef struct {
 /* channel requires noise floor check */
 #define	CHANNEL_NFCREQUIRED	IEEE80211_CHAN_PRIV0
 
-/* all full-width channels */
+/* channel attributes 
+ * Including this while figure it out
+ */
+#define	IEEE80211_CHAN_PRIV0	0x00000001 /* driver private bit 0 */
+#define	IEEE80211_CHAN_PRIV1	0x00000002 /* driver private bit 1 */
+#define	IEEE80211_CHAN_PRIV2	0x00000004 /* driver private bit 2 */
+#define	IEEE80211_CHAN_PRIV3	0x00000008 /* driver private bit 3 */
+#define	IEEE80211_CHAN_TURBO	0x00000010 /* Turbo channel */
+#define	IEEE80211_CHAN_CCK	0x00000020 /* CCK channel */
+#define	IEEE80211_CHAN_OFDM	0x00000040 /* OFDM channel */
+#define	IEEE80211_CHAN_2GHZ	0x00000080 /* 2 GHz spectrum channel. */
+#define	IEEE80211_CHAN_5GHZ	0x00000100 /* 5 GHz spectrum channel */
+#define	IEEE80211_CHAN_PASSIVE	0x00000200 /* Only passive scan allowed */
+#define	IEEE80211_CHAN_DYN	0x00000400 /* Dynamic CCK-OFDM channel */
+#define	IEEE80211_CHAN_GFSK	0x00000800 /* GFSK channel (FHSS PHY) */
+#define	IEEE80211_CHAN_GSM	0x00001000 /* 900 MHz spectrum channel */
+#define	IEEE80211_CHAN_STURBO	0x00002000 /* 11a static turbo channel only */
+#define	IEEE80211_CHAN_HALF	0x00004000 /* Half rate channel */
+#define	IEEE80211_CHAN_QUARTER	0x00008000 /* Quarter rate channel */
+#define	IEEE80211_CHAN_HT20	0x00010000 /* HT 20 channel */
+#define	CHANNEL_HT40PLUS	0x00020000 /* HT 40 channel w/ ext above */
+#define	CHANNEL_HT40PLUS	0x00040000 /* HT 40 channel w/ ext below */
+#define	IEEE80211_CHAN_DFS	0x00080000 /* DFS required */
+#define	IEEE80211_CHAN_4MSXMIT	0x00100000 /* 4ms limit on frame length */
+#define	IEEE80211_CHAN_NOADHOC	0x00200000 /* adhoc mode not allowed */
+#define	IEEE80211_CHAN_NOHOSTAP	0x00400000 /* hostap mode not allowed */
+#define	IEEE80211_CHAN_11D	0x00800000 /* 802.11d required */
+#define	IEEE80211_CHAN_VHT20	0x01000000 /* VHT20 channel */
+#define	IEEE80211_CHAN_VHT40U	0x02000000 /* VHT40 channel, ext above */
+#define	IEEE80211_CHAN_VHT40D	0x04000000 /* VHT40 channel, ext below */
+#define	IEEE80211_CHAN_VHT80	0x08000000 /* VHT80 channel */
+#define	IEEE80211_CHAN_VHT80_80	0x10000000 /* VHT80+80 channel */
+#define	IEEE80211_CHAN_VHT160	0x20000000 /* VHT160 channel */
+/* XXX note: 0x80000000 is used in src/sbin/ifconfig/ifieee80211.c :( */
+#define	IEEE80211_CHAN_HT40	(CHANNEL_HT40PLUS | CHANNEL_HT40PLUS)
+#define	IEEE80211_CHAN_HT	(IEEE80211_CHAN_HT20 | IEEE80211_CHAN_HT40)
+
+#define	IEEE80211_CHAN_VHT40	(IEEE80211_CHAN_VHT40U | IEEE80211_CHAN_VHT40D)
+#define	IEEE80211_CHAN_VHT	(IEEE80211_CHAN_VHT20 | IEEE80211_CHAN_VHT40 \
+				| IEEE80211_CHAN_VHT80 | IEEE80211_CHAN_VHT80_80 \
+				| IEEE80211_CHAN_VHT160)
+#define	IEEE80211_CHAN_ALL \
+	(IEEE80211_CHAN_2GHZ | IEEE80211_CHAN_5GHZ | IEEE80211_CHAN_GFSK | \
+	 IEEE80211_CHAN_CCK | IEEE80211_CHAN_OFDM | IEEE80211_CHAN_DYN | \
+	 IEEE80211_CHAN_HALF | IEEE80211_CHAN_QUARTER | \
+	 IEEE80211_CHAN_HT | IEEE80211_CHAN_VHT)
+#define	IEEE80211_CHAN_ALLTURBO \
+	(IEEE80211_CHAN_ALL | IEEE80211_CHAN_TURBO | IEEE80211_CHAN_STURBO)
+
+
+/* all full-width channels
+ * above lines are to make this work
+ */
 #define	IEEE80211_CHAN_ALLFULL \
 	(IEEE80211_CHAN_ALL - (IEEE80211_CHAN_HALF | IEEE80211_CHAN_QUARTER))
 #define	IEEE80211_CHAN_ALLTURBOFULL \
@@ -367,7 +418,7 @@ struct ath_hal_private {
 	HAL_BOOL	(*ah_eepromWrite)(struct ath_hal *, u_int off,
 				uint16_t data);
 	HAL_BOOL	(*ah_getChipPowerLimits)(struct ath_hal *,
-				struct ieee80211_channel *);
+				HAL_CHANNEL *);
 	int16_t		(*ah_getNfAdjust)(struct ath_hal *,
 				const HAL_CHANNEL_INTERNAL*);
 	void		(*ah_getNoiseFloor)(struct ath_hal *,
@@ -398,7 +449,7 @@ struct ath_hal_private {
 	uint8_t		ah_devType;		/* card type - CB, PCI, PCIe */
 
 	HAL_OPMODE	ah_opmode;		/* operating mode from reset */
-	const struct ieee80211_channel *ah_curchan;/* operating channel */
+	const HAL_CHANNEL_INTERNAL *ah_curchan;/* operating channel */
 	HAL_CAPABILITIES ah_caps;		/* device capabilities */
 	uint32_t	ah_diagreg;		/* user-specified AR_DIAG_SW */
 	int16_t		ah_powerLimit;		/* tx power cap */
@@ -438,6 +489,46 @@ struct ath_hal_private {
 	 */
 	 HAL_CHANNEL_SURVEY	ah_chansurvey;	/* channel survey */
 };
+
+
+enum {
+	IEEE80211_T_DS,			/* direct sequence spread spectrum */
+	IEEE80211_T_FH,			/* frequency hopping */
+	IEEE80211_T_OFDM,		/* frequency division multiplexing */
+	IEEE80211_T_TURBO,		/* high rate DS */
+	IEEE80211_T_HT,			/* HT - full GI */
+};
+
+#define	IS_CHAN_A(_c)	(((_c)->channelFlags & CHANNEL_A) == CHANNEL_A)
+#define	IS_CHAN_B(_c)	(((_c)->channelFlags & CHANNEL_B) == CHANNEL_B)
+#define	IS_CHAN_G(_c)	(((_c)->channelFlags & (CHANNEL_108G|CHANNEL_G)) == CHANNEL_G)
+#define	IS_CHAN_108G(_c)(((_c)->channelFlags & CHANNEL_108G) == CHANNEL_108G)
+#define	IS_CHAN_T(_c)	(((_c)->channelFlags & CHANNEL_T) == CHANNEL_T)
+#define	IS_CHAN_PUREG(_c) \
+	(((_c)->channelFlags & CHANNEL_PUREG) == CHANNEL_PUREG)
+
+//Gets channel Mode
+#define	IS_CHAN_TURBO(_c)	(((_c)->channelFlags & CHANNEL_TURBO) != 0)
+#define	IS_CHAN_CCK(_c)		(((_c)->channelFlags & CHANNEL_CCK) != 0)
+#define	IS_CHAN_OFDM(_c)	(((_c)->channelFlags & CHANNEL_OFDM) != 0)
+#define	IS_CHAN_5GHZ(_c)	(((_c)->channelFlags & CHANNEL_5GHZ) != 0)
+#define	IS_CHAN_2GHZ(_c)	(((_c)->channelFlags & CHANNEL_2GHZ) != 0)
+#define	IS_CHAN_PASSIVE(_c)	(((_c)->channelFlags & CHANNEL_PASSIVE) != 0)
+#define	IS_CHAN_HALF_RATE(_c)	(((_c)->channelFlags & CHANNEL_HALF) != 0)
+#define	IS_CHAN_QUARTER_RATE(_c) (((_c)->channelFlags & CHANNEL_QUARTER) != 0)
+#define	IS_CHAN_GSM(_c)		(((_c)->channelFlags & IEEE80211_CHAN_GSM) != 0)
+#define	IS_CHAN_IN_PUBLIC_SAFETY_BAND(_c) ((_c) > 4940 && (_c) < 4990)
+
+#define	CHANNEL_HT40		(CHANNEL_HT40PLUS | CHANNEL_HT40MINUS)
+#define	CHANNEL_HT		(CHANNEL_HT20 | CHANNEL_HT40)
+#define	IS_CHAN_HT(_c)		(((_c)->channelFlags & CHANNEL_HT) != 0)
+#define	IS_CHAN_HT20(_c)	(((_c)->channelFlags & CHANNEL_HT) == CHANNEL_HT20)
+#define	IS_CHAN_HT40(_c)	(((_c)->channelFlags & CHANNEL_HT40) != 0)
+#define	IS_CHAN_HT40PLUS(_c) \
+	(((_c)->channelFlags & CHANNEL_HT40PLUS) != 0)
+#define	IS_CHAN_HT40MINUS(_c) \
+	(((_c)->channelFlags & CHANNEL_HT40PLUS) != 0)
+
 
 #define	AH_PRIVATE(_ah)	((struct ath_hal_private *)(_ah))
 
@@ -508,6 +599,7 @@ struct ath_hal_private {
 
 #define	IEEE80211_MAX_LEN			(2300 + IEEE80211_CRC_LEN + \
     (IEEE80211_WEP_IVLEN + IEEE80211_WEP_KIDLEN + IEEE80211_WEP_CRCLEN))
+#define	IEEE80211_RATE_MCS	0x80
 #endif /* _NET_IF_IEEE80211_H_ */
 
 #define HAL_TXQ_USE_LOCKOUT_BKOFF_DIS	0x00000001
@@ -551,9 +643,10 @@ extern	HAL_BOOL ath_hal_getTxQProps(struct ath_hal *ah,
 #define	HAL_BIN_WIDTH_TURBO_100HZ	6250
 #define	HAL_MAX_BINS_ALLOWED		28
 
+/*
 #define	IS_CHAN_5GHZ(_c)	((_c)->channel > 4900)
 #define	IS_CHAN_2GHZ(_c)	(!IS_CHAN_5GHZ(_c))
-
+ */
 #define	IS_CHAN_IN_PUBLIC_SAFETY_BAND(_c) ((_c) > 4940 && (_c) < 4990)
 
 /*
@@ -692,13 +785,13 @@ extern	void ath_hal_assert_failed(const char* filename,
  * domain specific changes.
  */
 u_int	ath_hal_getantennareduction(struct ath_hal *ah,
-	    const struct ieee80211_channel *chan, u_int twiceGain);
+	    const HAL_CHANNEL *chan, u_int twiceGain);
 
 /*
  * Return the test group for the specific channel based on
  * the current regulatory setup.
  */
-u_int	ath_hal_getctl(struct ath_hal *, const struct ieee80211_channel *);
+u_int	ath_hal_getctl(struct ath_hal *, const HAL_CHANNEL *);
 
 /*
  * Map a public channel definition to the corresponding
@@ -706,32 +799,35 @@ u_int	ath_hal_getctl(struct ath_hal *, const struct ieee80211_channel *);
  * whether or not the specified channel is ok to use
  * based on the current regulatory domain constraints.
  */
+/*
+ * What to do with this debug version?
 #ifndef AH_DEBUG
 static OS_INLINE HAL_CHANNEL_INTERNAL *
-ath_hal_checkchannel(struct ath_hal *ah, const struct ieee80211_channel *c)
+ath_hal_checkchannel(struct ath_hal *ah, const HAL_CHANNEL *c)
 {
 	HAL_CHANNEL_INTERNAL *cc;
 
 	HALASSERT(c->ic_devdata < AH_PRIVATE(ah)->ah_nchan);
 	cc = &AH_PRIVATE(ah)->ah_channels[c->ic_devdata];
-	HALASSERT(c->ic_freq == cc->channel || IEEE80211_IS_CHAN_GSM(c));
+	HALASSERT(c->channel == cc->channel || IEEE80211_IS_CHAN_GSM(c));
 	return cc;
 }
 #else
+ */
 /* NB: non-inline version that checks state */
 HAL_CHANNEL_INTERNAL *ath_hal_checkchannel(struct ath_hal *,
-		const struct ieee80211_channel *);
-#endif /* AH_DEBUG */
+		const HAL_CHANNEL *);
+//#endif /* AH_DEBUG */ while not know what to do with lines above
 
 /*
  * Return the h/w frequency for a channel.  This may be
- * different from ic_freq if this is a GSM device that
+ * different from channel if this is a GSM device that
  * takes 2.4GHz frequencies and down-converts them.
  */
 static OS_INLINE uint16_t
-ath_hal_gethwchannel(struct ath_hal *ah, const struct ieee80211_channel *c)
+ath_hal_gethwchannel(struct ath_hal *ah, const HAL_CHANNEL_INTERNAL *c)
 {
-	return ath_hal_checkchannel(ah, c)->channel;
+	return ath_hal_checkchannel(ah, (const HAL_CHANNEL *)c->channel);
 }
 
 /*
@@ -898,7 +994,7 @@ extern	void ath_hal_setupratetable(struct ath_hal *ah, HAL_RATE_TABLE *rt);
 /*
  * Common routine for implementing getChanNoise api.
  */
-int16_t	ath_hal_getChanNoise(struct ath_hal *, const struct ieee80211_channel *);
+int16_t	ath_hal_getChanNoise(struct ath_hal *, const HAL_CHANNEL *);
 
 /*
  * Initialization support.
@@ -995,7 +1091,7 @@ extern	int16_t ath_ee_interpolate(uint16_t target, uint16_t srcLeft,
  *   by default.
  */
 #define	IS_5GHZ_FAST_CLOCK_EN(_ah, _c) \
-	(IEEE80211_IS_CHAN_5GHZ(_c) && \
+	(IS_CHAN_5GHZ(_c) && \
 	 AH_PRIVATE((_ah))->ah_caps.halSupportsFastClock5GHz && \
 	ath_hal_eepromGetFlag((_ah), AR_EEP_FSTCLK_5G))
 
@@ -1005,7 +1101,7 @@ extern	int16_t ath_ee_interpolate(uint16_t target, uint16_t srcLeft,
  */
 static inline int
 ath_hal_get_twice_max_regpower(struct ath_hal_private *ahp,
-    const HAL_CHANNEL_INTERNAL *ichan, const struct ieee80211_channel *chan)
+    const HAL_CHANNEL_INTERNAL *ichan, const HAL_CHANNEL *chan)
 {
 	struct ath_hal *ah = &ahp->h;
 
@@ -1013,15 +1109,18 @@ ath_hal_get_twice_max_regpower(struct ath_hal_private *ahp,
 		ath_hal_printf(ah, "%s: called with chan=NULL!\n", __func__);
 		return (0);
 	}
-	return (chan->ic_maxpower);
+	return (chan->maxTxPower);
 }
 
 /*
  * Get the maximum antenna gain allowed, in 1/2dBm steps.
  */
+
+/*
+ *Should extend HAL_CHANNEL?
 static inline int
 ath_hal_getantennaallowed(struct ath_hal *ah,
-    const struct ieee80211_channel *chan)
+    const HAL_CHANNEL *chan)
 {
 
 	if (! chan)
@@ -1029,6 +1128,7 @@ ath_hal_getantennaallowed(struct ath_hal *ah,
 
 	return (chan->ic_maxantgain);
 }
+*/
 
 /*
  * Map the given 2GHz channel to an IEEE number.

@@ -27,7 +27,7 @@
 
 /* shorthands to compact tables for readability */
 #define	OFDM	IEEE80211_T_OFDM
-#define	CCK	IEEE80211_T_CCK
+#define	CCK	IEEE80211_T_DS
 #define	TURBO	IEEE80211_T_TURBO
 
 HAL_RATE_TABLE ar5211_11a_table = {

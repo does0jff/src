@@ -33,7 +33,7 @@
 static HAL_BOOL ar5211GetChannelEdges(struct ath_hal *ah,
 		uint16_t flags, uint16_t *low, uint16_t *high);
 static HAL_BOOL ar5211GetChipPowerLimits(struct ath_hal *ah,
-		struct ieee80211_channel *chan);
+		HAL_CHANNEL *chans, uint32_t nchans);
 
 static void ar5211ConfigPCIE(struct ath_hal *ah, HAL_BOOL restore,
 		HAL_BOOL power_off);
@@ -205,8 +205,8 @@ ar5211GetRadioRev(struct ath_hal *ah)
  */
 static struct ath_hal *
 ar5211Attach(uint16_t devid, HAL_SOFTC sc,
-	HAL_BUS_TAG st, HAL_BUS_HANDLE sh, uint16_t *eepromdata,
-	HAL_OPS_CONFIG *ah_config, HAL_STATUS *status)
+	HAL_BUS_TAG st, HAL_BUS_HANDLE sh, /*uint16_t *eepromdata,
+	HAL_OPS_CONFIG *ah_config,*/ HAL_STATUS *status)
 {
 #define	N(a)	(sizeof(a)/sizeof(a[0]))
 	struct ath_hal_5211 *ahp;
@@ -436,12 +436,12 @@ static HAL_BOOL
 ar5211GetChannelEdges(struct ath_hal *ah,
 	uint16_t flags, uint16_t *low, uint16_t *high)
 {
-	if (flags & IEEE80211_CHAN_5GHZ) {
+	if (flags & CHANNEL_5GHZ) {
 		*low = 4920;
 		*high = 6100;
 		return AH_TRUE;
 	}
-	if (flags & IEEE80211_CHAN_2GHZ &&
+	if (flags & CHANNEL_2GHZ &&
 	    ath_hal_eepromGetFlag(ah, AR_EEP_BMODE)) {
 		*low = 2312;
 		*high = 2732;
@@ -451,14 +451,19 @@ ar5211GetChannelEdges(struct ath_hal *ah,
 }
 
 static HAL_BOOL
-ar5211GetChipPowerLimits(struct ath_hal *ah, struct ieee80211_channel *chan)
+ar5211GetChipPowerLimits(struct ath_hal *ah, HAL_CHANNEL *chan, uint32_t nchans)
 {
+	int i;
+
+	for(i = 0; i < nchans; i++)
+	{
 	/* XXX fill in, this is just a placeholder */
-	HALDEBUG(ah, HAL_DEBUG_ATTACH,
-	    "%s: no min/max power for %u/0x%x\n",
-	    __func__, chan->ic_freq, chan->ic_flags);
-	chan->ic_maxpower = MAX_RATE_POWER;
-	chan->ic_minpower = 0;
+		HALDEBUG(ah, HAL_DEBUG_ATTACH,
+	    	"%s: no min/max power for %u/0x%x\n",
+	    	__func__, (chan+i)->channel, (chan+i)->channel_flags);
+		(chan+i)->maxTxPower = MAX_RATE_POWER;
+		(chan+i)->minTxPower = 0;
+	}
 	return AH_TRUE;
 }
 
